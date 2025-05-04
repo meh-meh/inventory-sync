@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"editor.formatOnPaste": true,
+		"editor.formatOnSave": true,
+		"editor.formatOnType": true,
+		"diffEditor.codeLens": true,
+		"diffEditor.experimental.showMoves": true,
+		"diffEditor.experimental.useTrueInlineView": true,
+		"diffEditor.hideUnchangedRegions.enabled": false
+	}
+}

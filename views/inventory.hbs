@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Inventory Table View</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/handsontable@13.1.0/dist/handsontable.full.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <style>
+        .hot-container { height: 600px; overflow: hidden; margin: 20px; }
+        .marketplace-badge {
+            font-size: 0.8em;
+            padding: 2px 5px;
+            border-radius: 3px;
+            margin-right: 5px;
+        }
+        .etsy-badge { background-color: #F56400; color: white; }
+        .shopify-badge { background-color: #96BF48; color: white; }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .page-navigator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .page-navigator .page-input {
+            width: 60px;
+            text-align: center;
+            margin: 0 10px;
+        }
+        .search-box {
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Etsy Inventory</a>
+            <div class="navbar-nav">
+                <a class="nav-link active" href="/inventory">Inventory</a>
+                <a class="nav-link" href="/inventory/gallery">Gallery View</a>
+                <a class="nav-link" href="/orders">Orders</a>
+                <a class="nav-link" href="/sync">Sync</a>
+                <a class="nav-link" href="/settings">Settings</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="container-fluid">
+        <div class="gallery-sticky-header">
+            <div class="row mt-3 justify-content-between align-items-center">
+                <div class="col d-flex align-items-center">
+                    <h2>Inventory Table View</h2>
+                    
+                </div>
+                <div class="col d-flex justify-content-end align-items-center">
+                    <div class="btn-group mb-3">
+                        <button id="addProduct" class="btn btn-success">Add Product</button>
+                        <button id="addProperty" class="btn btn-primary">Add Property</button>
+                        <button id="save" class="btn btn-primary">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row justify-content-between align-items-center">
+                <div class="col d-flex input-group search-box">
+                    <input type="text" id="searchInput" class="form-control" placeholder="Search products...">
+                    <button class="btn btn-outline-secondary" type="button" id="searchBtn">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+                <div class="col d-flex justify-content-end align-items-center">
+                    <a href="/inventory/gallery" class="btn btn-outline-secondary">
+                        <i class="bi bi-list-task"></i> Switch to Gallery View
+                    </a>
+            </div>
+            
+            <div class="row justify-content-between align-items-center">
+                <div class="col d-flex align-items-center" id="itemsPerPageContainer">
+                    <!-- This will be populated by JavaScript -->
+                </div>
+                <div class="col d-flex align-items-center justify-content-center" id="pageNavigatorContainer">
+                    <!-- This will be populated by JavaScript -->
+                </div>
+                <div class="col d-flex align-items-center justify-content-end" id="countInfo">
+                    <!-- This will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        
+        <div class="row">
+            <div class="col">
+                <div id="inventory" class="hot-container position-relative">
+                    <div id="hotLoading" class="loading-overlay">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Product Modal -->
+    <div class="modal fade" id="addProductModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add New Product</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addProductForm">
+                        <div class="mb-3">
+                            <label for="sku" class="form-label">SKU</label>
+                            <input type="text" class="form-control" id="sku" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Name</label>
+                            <input type="text" class="form-control" id="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="location" class="form-label">Storage Location</label>
+                            <input type="text" class="form-control" id="location">
+                        </div>
+                        <div class="mb-3">
+                            <label for="quantity" class="form-label">Initial Quantity</label>
+                            <input type="number" class="form-control" id="quantity" value="0" min="0">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveProduct">Add Product</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Details Modal -->
+    <div class="modal fade" id="productDetailsModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-fullscreen-xxl-down	">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Product Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs" id="productTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="info-tab" data-bs-toggle="tab" data-bs-target="#info" type="button" role="tab" aria-controls="info" aria-selected="true">
+                                Basic Info
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="etsy-tab" data-bs-toggle="tab" data-bs-target="#etsy" type="button" role="tab" aria-controls="etsy" aria-selected="false">
+                                Etsy Data
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="raw-tab" data-bs-toggle="tab" data-bs-target="#raw" type="button" role="tab" aria-controls="raw" aria-selected="false">
+                                Raw Data
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <!-- Tab content panes - content same as before -->
+                    <div class="tab-content" id="productTabsContent">
+                        <!-- Basic Info Tab -->
+                        <div class="tab-pane fade show active" id="info" role="tabpanel" aria-labelledby="info-tab">
+                            <div class="row">
+                                <div class="col">
+                                    <div id="productImages" class="carousel slide" data-bs-ride="carousel">
+                                        <div class="carousel-inner" id="carouselImages">
+                                            <div class="carousel-item active">
+                                                <img src="" class="d-block w-100" alt="Product Image" id="mainImage">
+                                            </div>
+                                        </div>
+                                        <button class="carousel-control-prev" type="button" data-bs-target="#productImages" data-bs-slide="prev">
+                                            <span class="carousel-control-prev-icon"></span>
+                                        </button>
+                                        <button class="carousel-control-next" type="button" data-bs-target="#productImages" data-bs-slide="next">
+                                            <span class="carousel-control-next-icon"></span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <h4 id="productTitle"></h4>
+                                    <div class="marketplace-links">
+                                        <a id="etsyLink" href="#" target="_blank" class="btn btn-sm btn-outline-primary d-none">View on Etsy</a>
+                                        <a id="shopifyLink" href="#" target="_blank" class="btn btn-sm btn-outline-success d-none">View on Shopify</a>
+                                    </div>
+                                    <dl class="row">
+                                        <dt class="col-sm-4">SKU</dt>
+                                        <dd class="col-sm-8" id="productSku"></dd>
+                                        
+                                        <dt class="col-sm-4">Location</dt>
+                                        <dd class="col-sm-8" id="productLocation"></dd>
+                                        
+                                        <dt class="col-sm-4">On Hand</dt>
+                                        <dd class="col-sm-8" id="productOnHand"></dd>
+                                        
+                                        <dt class="col-sm-4">Available</dt>
+                                        <dd class="col-sm-8" id="productAvailable"></dd>
+                                        
+                                        <dt class="col-sm-4">Etsy Qty</dt>
+                                        <dd class="col-sm-8" id="etsyQuantity"></dd>
+                                        
+                                        <dt class="col-sm-4">Shopify Qty</dt>
+                                        <dd class="col-sm-8" id="shopifyQuantity"></dd>
+                                    </dl>
+                                    <div id="productTags"></div>
+                                </div>
+                                
+                            </div>
+                            <div class="row">
+                                <div class="col">
+                                    <h5>Product Description</h5>
+                                    <div id="productDescription"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Etsy Data Tab -->
+                        <div class="tab-pane fade" id="etsy" role="tabpanel" aria-labelledby="etsy-tab">
+                            <div>
+                                <h5>Etsy Listing Details</h5>
+                                <dl class="row" id="etsyDetails">
+                                    <dt class="col-sm-3">Listing ID</dt>
+                                    <dd class="col-sm-9" id="etsyListingId"></dd>
+                                    
+                                    <dt class="col-sm-3">Status</dt>
+                                    <dd class="col-sm-9" id="etsyStatus"></dd>
+                                    
+                                    <dt class="col-sm-3">Last Synced</dt>
+                                    <dd class="col-sm-9" id="etsyLastSynced"></dd>
+                                    
+                                    <dt class="col-sm-3">Price</dt>
+                                    <dd class="col-sm-9" id="etsyPrice"></dd>
+                                </dl>
+                            </div>
+                        </div>
+                        
+                        <!-- Raw Data Tab -->
+                        <div class="tab-pane fade" id="raw" role="tabpanel" aria-labelledby="raw-tab">
+                            <div class="alert alert-info">
+                                This is the raw data as received from the marketplace API.
+                            </div>
+                            <ul class="nav nav-pills mb-3" id="rawDataTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#rawEtsyData">Etsy Raw Data</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" data-bs-toggle="pill" data-bs-target="#rawFullData">Full Product Record</button>
+                                </li>
+                            </ul>
+                            <div class="tab-content" id="rawDataTabsContent">
+                                <div class="tab-pane fade show active" id="rawEtsyData">
+                                    <pre id="rawEtsyDataContent" class="bg-dark text-white p-3" style="max-height: 400px; overflow: auto;"></pre>
+                                </div>
+                                <div class="tab-pane fade" id="rawFullData">
+                                    <pre id="rawFullDataContent" class="bg-dark text-white p-3" style="max-height: 400px; overflow: auto;"></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/handsontable@13.1.0/dist/handsontable.full.min.js"></script>
+    <script>
+        // Initialize Bootstrap modals
+        document.addEventListener('DOMContentLoaded', function() {
+            // Ensure Bootstrap is fully loaded
+            if (typeof bootstrap !== 'undefined') {
+                // Pre-initialize all modals
+                const addProductModal = new bootstrap.Modal(document.getElementById('addProductModal'));
+                const productDetailsModal = new bootstrap.Modal(document.getElementById('productDetailsModal'));
+                
+                console.log('Bootstrap modals initialized');
+            } else {
+                console.error('Bootstrap not loaded properly');
+            }
+        });
+
+        // Table view state
+        const tableState = {
+            page: 1,
+            pageSize: 50,
+            sortColumn: 'sku',
+            sortOrder: 'asc',
+            search: '',
+            data: [],
+            totalPages: 0,
+            totalItems: 0
+        };
+
+        // Initialize the spreadsheet with empty data initially
+        const container = document.getElementById('inventory');
+        const hot = new Handsontable(container, {
+            data: [],
+            columns: {{{json columns}}},
+            rowHeaders: true,
+            colHeaders: true,
+            filters: true,
+            dropdownMenu: true,
+            contextMenu: true,
+            multiColumnSorting: true,
+            manualRowMove: true,
+            height: '70vh',
+            licenseKey: 'non-commercial-and-evaluation',
+            afterChange: function(changes, source) {
+                if (source === 'loadData') return; // Don't trigger for initial data load
+                
+                // Mark that we have unsaved changes
+                window.hasUnsavedChanges = true;
+            },
+            afterGetColHeader: function(col, TH) {
+                // Add sorting indicators to column headers
+                const columnName = this.getColHeader(col);
+                const columnData = this.getSettings().columns[col]?.data;
+                
+                if (!columnData) return;
+                
+                const sortIndicator = document.createElement('span');
+                sortIndicator.classList.add('ml-2');
+                
+                if (columnData === tableState.sortColumn) {
+                    sortIndicator.innerHTML = tableState.sortOrder === 'asc' 
+                        ? ' <i class="bi bi-caret-up-fill"></i>' 
+                        : ' <i class="bi bi-caret-down-fill"></i>';
+                }
+                
+                TH.querySelector('.colHeader').appendChild(sortIndicator);
+                
+                // Add click handler for sorting
+                Handsontable.dom.addEvent(TH, 'click', function(e) {
+                    if (e.target.nodeName === 'INPUT') return; // Don't sort when clicking on filter inputs
+                    
+                    if (columnData === tableState.sortColumn) {
+                        // Toggle sort direction
+                        tableState.sortOrder = tableState.sortOrder === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        // New sort column
+                        tableState.sortColumn = columnData;
+                        tableState.sortOrder = 'asc';
+                    }
+                    
+                    // Reset to first page when sorting changes
+                    tableState.page = 1;
+                    loadTableData();
+                });
+            }
+        });
+
+        // Make SKU and Name columns clickable using afterRender hook
+        hot.addHook('afterRender', function() {
+            const skuColumn = this.propToCol('sku');
+            const nameColumn = this.propToCol('name');
+            
+            // Get all cells in these columns
+            const allRows = this.countRows();
+            
+            for (let row = 0; row < allRows; row++) {
+                // Style and mark SKU cells
+                if (skuColumn !== -1) {
+                    const skuTd = this.getCell(row, skuColumn);
+                    if (skuTd) {
+                        const rowData = this.getSourceDataAtRow(row);
+                        if (rowData && rowData.sku) {
+                            skuTd.style.cursor = 'pointer';
+                            skuTd.style.color = '#0d6efd';
+                            skuTd.style.textDecoration = 'underline';
+                            skuTd.setAttribute('data-sku', rowData.sku);
+                        }
+                    }
+                }
+                
+                // Style and mark Name cells
+                if (nameColumn !== -1) {
+                    const nameTd = this.getCell(row, nameColumn);
+                    if (nameTd) {
+                        const rowData = this.getSourceDataAtRow(row);
+                        if (rowData && rowData.sku) {
+                            nameTd.style.cursor = 'pointer';
+                            nameTd.style.color = '#0d6efd';
+                            nameTd.style.textDecoration = 'underline';
+                            nameTd.setAttribute('data-sku', rowData.sku);
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Function to load table data with pagination
+        async function loadTableData() {
+            // Show loading spinner
+            document.getElementById('hotLoading').style.display = 'flex';
+            
+            try {
+                const { page, pageSize, sortColumn, sortOrder, search } = tableState;
+                
+                // Build query string
+                const queryParams = new URLSearchParams({
+                    page: page,
+                    limit: pageSize,
+                    sort: sortColumn,
+                    order: sortOrder,
+                    search: search
+                });
+                
+                const response = await fetch(`/inventory/api/data?${queryParams}`);
+                if (!response.ok) throw new Error('Failed to fetch inventory data');
+                
+                const data = await response.json();
+                
+                // Update state
+                tableState.data = data.products;
+                tableState.totalPages = data.pagination.totalPages;
+                tableState.totalItems = data.pagination.totalItems;
+                
+                // Update table data
+                hot.loadData(data.products);
+                
+                // Update UI elements
+                updateTablePaginationUI();
+                
+                // Update count info
+                const start = (page - 1) * pageSize + 1;
+                const end = Math.min(start + pageSize - 1, data.pagination.totalItems);
+                document.getElementById('countInfo').textContent = 
+                    `Showing ${start} to ${end} of ${data.pagination.totalItems} products`;
+                
+                window.hasUnsavedChanges = false;
+            } catch (error) {
+                console.error('Error loading inventory data:', error);
+                alert('Failed to load inventory data');
+            } finally {
+                // Hide loading spinner
+                document.getElementById('hotLoading').style.display = 'none';
+            }
+        }
+        
+        function updateTablePaginationUI() {
+            const state = tableState;
+            const tableContainer = document.getElementById('inventory');
+            const itemsPerPageContainer = document.getElementById('itemsPerPageContainer');
+            const pageNavigatorContainer = document.getElementById('pageNavigatorContainer');
+            const countInfoElement = document.getElementById('countInfo');
+            
+            // Clear existing pagination if any
+            const existingPagination = tableContainer.querySelector('.page-navigator');
+            if (existingPagination) {
+                existingPagination.remove();
+            }
+
+            pageNavigatorContainer.innerHTML = '';
+            itemsPerPageContainer.innerHTML = '';
+            
+            // Create items per page dropdown in the dedicated container
+            const itemsPerPageDropdown = document.createElement('div');
+            itemsPerPageDropdown.className = 'd-flex align-items-center';
+            itemsPerPageDropdown.innerHTML = `
+                <label class="me-2">Show:</label>
+                <select id="itemsPerPage" class="form-select form-select-sm" style="width: auto;">
+                    <option value="10" ${tableState.pageSize === 10 ? 'selected' : ''}>10</option>
+                    <option value="25" ${tableState.pageSize === 25 ? 'selected' : ''}>25</option>
+                    <option value="50" ${tableState.pageSize === 50 ? 'selected' : ''}>50</option>
+                    <option value="100" ${tableState.pageSize === 100 ? 'selected' : ''}>100</option>
+                </select>
+                <span class="ms-2">items per page</span>
+            `;
+            itemsPerPageContainer.appendChild(itemsPerPageDropdown);
+
+            // Update count info in the dedicated element
+            if (countInfoElement) {
+                if (tableState.totalItems > 0) {
+                    const start = (tableState.currentPage - 1) * tableState.pageSize + 1;
+                    const end = Math.min(start + tableState.pageSize - 1, tableState.totalItems);
+                    countInfoElement.innerHTML = `<span>Showing ${start} to ${end} of ${tableState.totalItems} products</span>`;
+                } else {
+                    countInfoElement.innerHTML = '<span>No items to display</span>';
+                }
+            }
+            
+            // Add items per page change event
+            document.getElementById('itemsPerPage').addEventListener('change', function(e) {
+                const newPageSize = parseInt(e.target.value);
+                tableState.pageSize = newPageSize;
+                
+                // Reset to first page
+                tableState.currentPage = 1;
+                
+                // Save to local storage
+                localStorage.setItem('inventoryItemsPerPage', newPageSize);
+                
+                // Reload the data
+                loadTableData();
+            });
+
+            // Create page navigator with input field
+            const pageNavigator = document.createElement('div');
+            pageNavigator.className = 'page-navigator';
+            
+            // Previous page button
+            const prevButton = document.createElement('button');
+            prevButton.className = `btn btn-outline-secondary ${state.page === 1 ? 'disabled' : ''}`;
+            prevButton.innerHTML = '<i class="bi bi-chevron-left"></i>';
+            prevButton.disabled = state.page === 1;
+            prevButton.addEventListener('click', function() {
+                if (state.page > 1) {
+                    state.page--;
+                    loadTableData();
+                }
+            });
+            pageNavigator.appendChild(prevButton);
+            
+            // Page input and total
+            const pageInputGroup = document.createElement('div');
+            pageInputGroup.className = 'd-flex align-items-center mx-2';
+            pageInputGroup.innerHTML = `
+                <span class="me-2">Page</span>
+                <input type="number" class="form-control form-control-sm page-input" 
+                    value="${state.page}" min="1" max="${state.totalPages}">
+                <span class="ms-2">of ${state.totalPages}</span>
+            `;
+            pageNavigator.appendChild(pageInputGroup);
+            
+            // Next page button
+            const nextButton = document.createElement('button');
+            nextButton.className = `btn btn-outline-secondary ${state.page === state.totalPages || state.totalPages === 0 ? 'disabled' : ''}`;
+            nextButton.innerHTML = '<i class="bi bi-chevron-right"></i>';
+            nextButton.disabled = state.page === state.totalPages || state.totalPages === 0;
+            nextButton.addEventListener('click', function() {
+                if (state.page < state.totalPages) {
+                    state.page++;
+                    loadTableData();
+                }
+            });
+            pageNavigator.appendChild(nextButton);
+            
+            // Add to container
+            pageNavigatorContainer.appendChild(pageNavigator);
+            
+            // Add input event for page field
+            const pageInput = pageNavigator.querySelector('.page-input');
+            if (pageInput) {
+                pageInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const newPage = parseInt(e.target.value);
+                        if (newPage && newPage >= 1 && newPage <= state.totalPages) {
+                            if (newPage !== state.page) {
+                                state.page = newPage;
+                                loadTableData();
+                            }
+                        } else {
+                            // Reset to current page if invalid
+                            e.target.value = state.page;
+                        }
+                    }
+                });
+                
+                // Add blur event for page field
+                pageInput.addEventListener('blur', function(e) {
+                    const newPage = parseInt(e.target.value);
+                    if (newPage && newPage >= 1 && newPage <= state.totalPages) {
+                        if (newPage !== state.page) {
+                            state.page = newPage;
+                            loadTableData();
+                        }
+                    } else {
+                        // Reset to current page if invalid
+                        e.target.value = state.page;
+                    }
+                });
+            }
+        }
+        
+        // Add click handler for the inventory table
+        document.getElementById('inventory').addEventListener('click', function(event) {
+            const td = event.target.closest('td');
+            if (td && td.hasAttribute('data-sku')) {
+                const sku = td.getAttribute('data-sku');
+                console.log('Cell clicked, navigating to product details:', sku);
+                fetchProductDetails(sku);
+                //window.location.href = `/inventory/details/${sku}`;
+            }
+        });
+
+        // Handle adding new product
+        document.getElementById('addProduct').addEventListener('click', function() {
+            console.log('Add product button clicked');
+            const modal = new bootstrap.Modal(document.getElementById('addProductModal'));
+            modal.show();
+        });
+
+        // Handle saving new product
+        document.getElementById('saveProduct').addEventListener('click', async function() {
+            console.log('Save product button clicked');
+            const form = document.getElementById('addProductForm');
+            const formData = {
+                sku: document.getElementById('sku').value,
+                name: document.getElementById('name').value,
+                location: document.getElementById('location').value,
+                quantity_on_hand: parseInt(document.getElementById('quantity').value) || 0
+            };
+
+            console.log('Saving product:', formData);
+
+            try {
+                const response = await fetch('/inventory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ changes: [formData] })
+                });
+
+                if (response.ok) {
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('addProductModal'));
+                    modal.hide();
+                    alert('Product added successfully!');
+                    
+                    // Reload data
+                    loadTableData();
+                } else {
+                    alert('Error adding product');
+                }
+            } catch (error) {
+                console.error('Error saving product:', error);
+                alert('Failed to save product');
+            }
+        });
+
+        // Handle adding new property
+        document.getElementById('addProperty').addEventListener('click', async function() {
+            console.log('Add property button clicked');
+            const propertyName = prompt('Enter new property name:');
+            if (propertyName) {
+                try {
+                    const response = await fetch('/inventory/properties', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ propertyName })
+                    });
+                    
+                    if (response.ok) {
+                        alert('Property added successfully!');
+                        location.reload();
+                    } else {
+                        alert('Failed to add property');
+                    }
+                } catch (error) {
+                    console.error('Error adding property:', error);
+                    alert('Error adding property');
+                }
+            }
+        });
+
+        // Handle saving changes
+        document.getElementById('save').addEventListener('click', async function() {
+            console.log('Save changes button clicked');
+            // Get all data for saving
+            const changes = hot.getSourceData();
+            
+            try {
+                const response = await fetch('/inventory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ changes })
+                });
+                
+                if (response.ok) {
+                    alert('Changes saved successfully!');
+                    window.hasUnsavedChanges = false;
+                } else {
+                    alert('Failed to save changes');
+                }
+            } catch (error) {
+                console.error('Error saving changes:', error);
+                alert('Error saving changes');
+            }
+        });
+
+        // Add double-click handler for product details popup
+        hot.addHook('afterOnCellMouseDown', function(event, coords) {
+            if (event.type === 'dblclick') {
+                console.log('Cell double-clicked:', coords);
+                const row = this.getSourceDataAtRow(coords.row);
+                if (row) {
+                    // Fetch full product details from server
+                    fetchProductDetails(row.sku);
+                }
+            }
+        });
+        
+        // Function to fetch product details on demand
+        async function fetchProductDetails(sku) {
+            console.log('Fetching product details for:', sku);
+            try {
+                const response = await fetch(`/inventory/product/${sku}`);
+                if (response.ok) {
+                    const product = await response.json();
+                    showProductDetails(product);
+                } else {
+                    console.error('Failed to fetch product details');
+                }
+            } catch (error) {
+                console.error('Error fetching product details:', error);
+            }
+        }
+
+        // Function to show product details modal
+        function showProductDetails(product) {
+            console.log('Showing product details:', product.name);
+            
+            // Set basic details
+            document.getElementById('productTitle').textContent = product.name;
+            document.getElementById('productSku').textContent = product.sku;
+            document.getElementById('productLocation').textContent = product.location || 'Not set';
+            document.getElementById('productOnHand').textContent = product.quantity_on_hand;
+            document.getElementById('productAvailable').textContent = product.quantity_available;
+            
+            // Set JSON data for raw view
+            document.getElementById('rawFullDataContent').textContent = JSON.stringify(product, null, 2);
+            
+            // Set Etsy data if available
+            if (product.etsy_data && product.etsy_data.listing_id) {
+                document.getElementById('etsyQuantity').textContent = product.etsy_data.quantity || '0';
+                document.getElementById('etsyListingId').textContent = product.etsy_data.listing_id;
+                document.getElementById('etsyStatus').textContent = product.etsy_data.state || 'Unknown';
+                document.getElementById('etsyLastSynced').textContent = product.etsy_data.last_synced ? 
+                    new Date(product.etsy_data.last_synced).toLocaleString() : 'Never';
+                document.getElementById('etsyPrice').textContent = product.etsy_data.price || 'N/A';
+                
+                // Set Etsy link
+                const etsyLink = document.getElementById('etsyLink');
+                etsyLink.href = `https://www.etsy.com/listing/${product.etsy_data.listing_id}`;
+                etsyLink.classList.remove('d-none');
+                
+                // Set raw Etsy data
+                document.getElementById('rawEtsyDataContent').textContent = 
+                    JSON.stringify(product.etsy_data, null, 2);
+                
+                // Add images to carousel if available
+                if (product.etsy_data.images && product.etsy_data.images.length > 0) {
+                    const carouselInner = document.getElementById('carouselImages');
+                    carouselInner.innerHTML = '';
+                    
+                    product.etsy_data.images.forEach((image, index) => {
+                        const item = document.createElement('div');
+                        item.className = `carousel-item ${index === 0 ? 'active' : ''}`;
+                        
+                        const img = document.createElement('img');
+                        img.src = image.url;
+                        img.className = 'd-block w-100';
+                        img.alt = product.name;
+                        
+                        item.appendChild(img);
+                        carouselInner.appendChild(item);
+                    });
+                }
+            } else {
+                document.getElementById('etsyQuantity').textContent = 'N/A';
+                document.getElementById('etsyLink').classList.add('d-none');
+                document.getElementById('etsyListingId').textContent = 'Not connected';
+                document.getElementById('rawEtsyDataContent').textContent = '{}';
+            }
+            
+            // Set Shopify data if available
+            if (product.shopify_data && product.shopify_data.listing_id) {
+                document.getElementById('shopifyQuantity').textContent = product.shopify_data.quantity || '0';
+                document.getElementById('shopifyLink').classList.remove('d-none');
+            } else {
+                document.getElementById('shopifyQuantity').textContent = 'N/A';
+                document.getElementById('shopifyLink').classList.add('d-none');
+            }
+            
+            // Show the modal
+            const modal = new bootstrap.Modal(document.getElementById('productDetailsModal'));
+            modal.show();
+        }
+
+        // Search functionality
+        document.getElementById('searchBtn').addEventListener('click', function() {
+            performSearch();
+        });
+        
+        document.getElementById('searchInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+        
+        function performSearch() {
+            const searchTerm = document.getElementById('searchInput').value.trim();
+            
+            // Update search term
+            tableState.search = searchTerm;
+            
+            // Reset to first page
+            tableState.page = 1;
+            
+            // Load data
+            loadTableData();
+        }
+        
+        // Load saved page size preference and data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Load saved page size preference
+            const savedItemsPerPage = localStorage.getItem('inventoryItemsPerPage');
+            if (savedItemsPerPage) {
+                tableState.pageSize = parseInt(savedItemsPerPage);
+            }
+            
+            // Load the data
+            loadTableData();
+            
+            // Check for unsaved changes before leaving the page
+            window.addEventListener('beforeunload', function(e) {
+                if (window.hasUnsavedChanges) {
+                    e.preventDefault();
+                    e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+                    return e.returnValue;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

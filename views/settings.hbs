@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Settings - Inventory Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <style>
+        .card { margin-bottom: 20px; }
+        .connection-status { font-size: 0.9rem; }
+        .connected { color: #198754; }
+        .disconnected { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Inventory Manager</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/inventory">Inventory</a>
+                <a class="nav-link" href="/orders">Orders</a>
+                <a class="nav-link" href="/sync">Sync</a>
+                <a class="nav-link active" href="/settings">Settings</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {{#if flashMessages.success}}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            {{flashMessages.success}}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {{/if}}
+        
+        {{#if flashMessages.error}}
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            {{flashMessages.error}}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {{/if}}
+
+        <h2>Settings</h2>
+        
+        <ul class="nav nav-tabs mb-3" id="settingsTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">
+                    General
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="integrations-tab" data-bs-toggle="tab" data-bs-target="#integrations" type="button" role="tab">
+                    Marketplace Connections
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="advanced-tab" data-bs-toggle="tab" data-bs-target="#advanced" type="button" role="tab">
+                    Advanced
+                </button>
+            </li>
+        </ul>
+        
+        <div class="tab-content">
+            <!-- General Settings -->
+            <div class="tab-pane fade show active" id="general" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">General Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="/settings/general" method="POST">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="lowStockThreshold" class="form-label">Low Stock Threshold</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="lowStockThreshold" name="lowStockThreshold" value="{{lowStockThreshold}}" min="1" max="100">
+                                        <span class="input-group-text">items</span>
+                                    </div>
+                                    <div class="form-text">Products with available quantity below this threshold will be marked as low stock</div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <label for="orderSyncDays" class="form-label">Order Sync Period</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="orderSyncDays" name="orderSyncDays" value="{{orderSyncDays}}" min="1" max="365">
+                                        <span class="input-group-text">days</span>
+                                    </div>
+                                    <div class="form-text">Number of days to look back when syncing orders</div>
+                                </div>
+                            </div>
+                            
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="autoSyncEnabled" name="autoSyncEnabled" {{#if autoSyncEnabled}}checked{{/if}}>
+                                        <label class="form-check-label" for="autoSyncEnabled">Enable Automatic Sync</label>
+                                    </div>
+                                    <div class="form-text">Automatically sync inventory and orders at regular intervals</div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <label for="autoSyncInterval" class="form-label">Auto-Sync Interval</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="autoSyncInterval" name="autoSyncInterval" value="{{autoSyncInterval}}" min="1" max="72">
+                                        <span class="input-group-text">hours</span>
+                                    </div>
+                                    <div class="form-text">How often to automatically sync data</div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notificationsEnabled" name="notificationsEnabled" {{#if notificationsEnabled}}checked{{/if}}>
+                                    <label class="form-check-label" for="notificationsEnabled">Enable Notifications</label>
+                                </div>
+                                <div class="form-text">Receive notifications for low stock, new orders, etc.</div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary">Save Settings</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Marketplace Connections -->
+            <div class="tab-pane fade" id="integrations" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Etsy Connection</h5>
+                    </div>
+                    <div class="card-body">
+                        {{#if etsyConnected}}
+                            <div class="mb-3">
+                                <span class="connection-status connected">
+                                    <i class="bi bi-check-circle-fill"></i> Connected
+                                </span>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <strong>Shop ID:</strong> {{etsyShopId}}<br>
+                                <strong>Shop Name:</strong> {{etsyShopName}}
+                            </div>
+                            
+                            <form action="/settings/disconnect-etsy" method="POST">
+                                <button type="submit" class="btn btn-danger">Disconnect from Etsy</button>
+                            </form>
+                        {{else}}
+                            <div class="mb-3">
+                                <span class="connection-status disconnected">
+                                    <i class="bi bi-x-circle-fill"></i> Not Connected
+                                </span>
+                            </div>
+                            
+                            <p>Connect your Etsy shop to sync inventory and orders.</p>
+                            
+                            <a href="/settings/connect-etsy" class="btn btn-primary">Connect to Etsy</a>
+                        {{/if}}
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Etsy Shipping Profiles</h5>
+                    </div>
+                    <div class="card-body">
+                        {{#if etsyConnected}}
+                            <div class="mb-3">
+                                <p>Select which shipping profiles to include when syncing products from Etsy:</p>
+                                <div id="shipping-profiles-container">
+                                    <div class="d-flex justify-content-center">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading shipping profiles...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <button id="save-shipping-profiles" class="btn btn-primary" style="display: none;">Save Shipping Profiles</button>
+                                </div>
+                            </div>
+                        {{else}}
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle-fill"></i> 
+                                You need to connect to Etsy to manage shipping profiles.
+                            </div>
+                        {{/if}}
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Shopify Connection</h5>
+                    </div>
+                    <div class="card-body">
+                        {{#if shopifyConnected}}
+                            <div class="mb-3">
+                                <span class="connection-status connected">
+                                    <i class="bi bi-check-circle-fill"></i> Connected
+                                </span>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <strong>Shop Name:</strong> {{shopifyShopName}}
+                            </div>
+                            
+                            <form action="/settings/disconnect-shopify" method="POST">
+                                <button type="submit" class="btn btn-danger">Disconnect from Shopify</button>
+                            </form>
+                        {{else}}
+                            <div class="mb-3">
+                                <span class="connection-status disconnected">
+                                    <i class="bi bi-x-circle-fill"></i> Not Connected
+                                </span>
+                            </div>
+                            
+                            <p>Connect your Shopify store to sync inventory and orders.</p>
+                            
+                            <form action="/settings/connect-shopify" method="POST" class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="shopName" class="form-label">Shop Name</label>
+                                    <input type="text" class="form-control" id="shopName" name="shopName" placeholder="your-shop-name.myshopify.com" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="accessToken" class="form-label">Access Token</label>
+                                    <input type="password" class="form-control" id="accessToken" name="accessToken" required>
+                                </div>
+                                <div class="col-12">
+                                    <button type="submit" class="btn btn-primary">Connect to Shopify</button>
+                                </div>
+                            </form>
+                        {{/if}}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Advanced Settings -->
+            <div class="tab-pane fade" id="advanced" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Data Management</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Database Backup</h5>
+                                        <p class="card-text">Create a backup of your inventory and orders data.</p>
+                                        <a href="/settings/backup" class="btn btn-primary">Create Backup</a>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h5 class="card-title">Clear Cache</h5>
+                                        <p class="card-text">Clear cached data to free up space and resolve potential issues.</p>
+                                        <a href="/settings/clear-cache" class="btn btn-warning">Clear Cache</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Developer Options</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="debugMode">
+                            <label class="form-check-label" for="debugMode">Enable Debug Mode</label>
+                        </div>
+                        <p>
+                            <a class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" href="#apiKeysSection">
+                                Show/Hide API Keys
+                            </a>
+                        </p>
+                        <div class="collapse" id="apiKeysSection">
+                            <div class="card card-body bg-light">
+                                <h6>Etsy API Key</h6>
+                                <code>{{process.env.ETSY_API_KEY}}</code>
+                                
+                                <h6 class="mt-3">Shopify API Key</h6>
+                                <code>*****</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const generalForm = document.querySelector('#general form');
+            const shopifyForm = document.querySelector('form[action="/settings/connect-shopify"]');
+            
+            // Shopify connection form handler
+            if (shopifyForm) {
+                shopifyForm.addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    
+                    // Disable the submit button and show loading state
+                    const submitBtn = shopifyForm.querySelector('button[type="submit"]');
+                    const originalBtnText = submitBtn.innerHTML;
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Connecting...';
+                    
+                    // Get form data
+                    const formData = new FormData(shopifyForm);
+                    const shopName = formData.get('shopName');
+                    const accessToken = formData.get('accessToken');
+                    
+                    // Validate inputs
+                    if (!shopName || !accessToken) {
+                        showShopifyError('Please fill in all fields');
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = originalBtnText;
+                        return;
+                    }
+                    
+                    // Submit the form
+                    fetch('/settings/connect-shopify', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            // Parse the error message from the response
+                            return response.json().then(errorData => {
+                                throw new Error(errorData.message || 'Failed to connect to Shopify');
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // Successful connection - show success and reload the page
+                        console.log('Successfully connected to Shopify:', data);
+                        window.location.href = '/settings?success=shopify-connected';
+                    })
+                    .catch(error => {
+                        console.error('Error connecting to Shopify:', error);
+                        showShopifyError(error.message || 'Failed to connect to Shopify. Please check your credentials and try again.');
+                        
+                        // Reset button
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = originalBtnText;
+                    });
+                });
+            }
+            
+            // Function to show Shopify error message
+            function showShopifyError(message) {
+                // Remove any existing error message
+                const existingAlert = document.querySelector('#shopify-form-error');
+                if (existingAlert) {
+                    existingAlert.remove();
+                }
+                
+                // Create and show new error message
+                const errorDiv = document.createElement('div');
+                errorDiv.id = 'shopify-form-error';
+                errorDiv.className = 'alert alert-danger mt-3';
+                errorDiv.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> ${message}`;
+                
+                // Insert before the form's end
+                const formEnd = shopifyForm.querySelector('.col-12');
+                shopifyForm.insertBefore(errorDiv, formEnd);
+            }
+            
+            // Shipping profiles functionality
+            const shippingProfilesContainer = document.getElementById('shipping-profiles-container');
+            const saveShippingProfilesBtn = document.getElementById('save-shipping-profiles');
+            
+            // Only try to load shipping profiles if connected to Etsy
+            if (shippingProfilesContainer) {
+                // Load shipping profiles from API
+                fetchShippingProfiles();
+                
+                // Set up save button click handler
+                if (saveShippingProfilesBtn) {
+                    saveShippingProfilesBtn.addEventListener('click', saveSelectedProfiles);
+                }
+            }
+            
+            // Function to fetch shipping profiles from the API
+            function fetchShippingProfiles() {
+                fetch('/settings/shipping-profiles')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success && data.profiles) {
+                            displayShippingProfiles(data.profiles);
+                        } else {
+                            showShippingProfilesError('Could not load shipping profiles');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching shipping profiles:', error);
+                        showShippingProfilesError('Failed to load shipping profiles');
+                    });
+            }
+            
+            // Function to display shipping profiles as checkboxes
+            function displayShippingProfiles(profiles) {
+                // Clear the container
+                shippingProfilesContainer.innerHTML = '';
+                
+                if (profiles.length === 0) {
+                    shippingProfilesContainer.innerHTML = `
+                        <div class="alert alert-info">
+                            No shipping profiles found in your Etsy shop.
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Create a container for the checkboxes
+                const profilesList = document.createElement('div');
+                profilesList.className = 'list-group';
+                
+                // Add each profile as a checkbox
+                profiles.forEach(profile => {
+                    const profileItem = document.createElement('div');
+                    profileItem.className = 'list-group-item';
+                    
+                    // Create the checkbox
+                    const checkbox = document.createElement('div');
+                    checkbox.className = 'form-check';
+                    checkbox.innerHTML = `
+                        <input class="form-check-input shipping-profile-checkbox" 
+                               type="checkbox" 
+                               id="profile-${profile.shipping_profile_id}" 
+                               value="${profile.shipping_profile_id}"
+                               data-profile-id="${profile.shipping_profile_id}"
+                               ${profile.selected ? 'checked' : ''}>
+                        <label class="form-check-label" for="profile-${profile.shipping_profile_id}">
+                            ${profile.title}
+                        </label>
+                    `;
+                    
+                    profileItem.appendChild(checkbox);
+                    profilesList.appendChild(profileItem);
+                });
+                
+                // Add the list to the container
+                shippingProfilesContainer.appendChild(profilesList);
+                
+                // Show the save button
+                saveShippingProfilesBtn.style.display = 'block';
+            }
+            
+            // Function to save selected shipping profiles
+            function saveSelectedProfiles() {
+                // Get all checked checkboxes
+                const checkboxes = document.querySelectorAll('.shipping-profile-checkbox:checked');
+                const selectedProfiles = Array.from(checkboxes).map(cb => cb.value);
+                
+                // Create form data
+                const formData = new FormData();
+                formData.append('selectedProfiles', JSON.stringify(selectedProfiles));
+                
+                // Save to the server
+                saveShippingProfilesBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...';
+                saveShippingProfilesBtn.disabled = true;
+                
+                fetch('/settings/shipping-profiles', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Show success message
+                        showShippingProfilesSuccess('Shipping profiles saved successfully');
+                    } else {
+                        showShippingProfilesError('Failed to save shipping profiles');
+                    }
+                    
+                    // Reset button
+                    saveShippingProfilesBtn.innerHTML = 'Save Shipping Profiles';
+                    saveShippingProfilesBtn.disabled = false;
+                })
+                .catch(error => {
+                    console.error('Error saving shipping profiles:', error);
+                    showShippingProfilesError('Error saving shipping profiles');
+                    
+                    // Reset button
+                    saveShippingProfilesBtn.innerHTML = 'Save Shipping Profiles';
+                    saveShippingProfilesBtn.disabled = false;
+                });
+            }
+            
+            // Function to show error message
+            function showShippingProfilesError(message) {
+                shippingProfilesContainer.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle-fill"></i> ${message}
+                    </div>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="fetchShippingProfiles()">
+                        <i class="bi bi-arrow-clockwise"></i> Try Again
+                    </button>
+                `;
+            }
+            
+            // Function to show success message (temporarily)
+            function showShippingProfilesSuccess(message) {
+                // Create alert and add it above the container
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-success alert-dismissible fade show mb-3';
+                alert.innerHTML = `
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                
+                shippingProfilesContainer.parentNode.insertBefore(alert, shippingProfilesContainer);
+                
+                // Auto-dismiss after 3 seconds
+                setTimeout(() => {
+                    alert.classList.remove('show');
+                    setTimeout(() => alert.remove(), 150);
+                }, 3000);
+            }
+            
+            // Original general settings form handler
+            if (generalForm) {
+                console.log('Found settings form:', generalForm);
+                
+                // Replace the default form submission with our own handler
+                generalForm.addEventListener('submit', function(event) {
+                    // Prevent the default form submission
+                    event.preventDefault();
+                    
+                    console.log('Form submit event intercepted');
+                    
+                    // Get all form values
+                    const formData = new FormData(generalForm);
+                    
+                    // Handle checkboxes that might not be submitted when unchecked
+                    if (!formData.has('autoSyncEnabled')) {
+                        formData.append('autoSyncEnabled', 'false');
+                    }
+                    
+                    if (!formData.has('notificationsEnabled')) {
+                        formData.append('notificationsEnabled', 'false');
+                    }
+                    
+                    // Log the data that's being sent
+                    console.log('Submitting form data:');
+                    for (let pair of formData.entries()) {
+                        console.log(pair[0] + ': ' + pair[1]);
+                    }
+                    
+                    // Submit the form using fetch API
+                    fetch('/settings/general', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => {
+                        if (response.ok) {
+                            console.log('Settings saved successfully!');
+                            window.location.href = '/settings?success=true';
+                        } else {
+                            console.error('Error saving settings:', response.statusText);
+                            window.location.href = '/settings?error=true';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Fetch error:', error);
+                        window.location.href = '/settings?error=true';
+                    });
+                });
+            } else {
+                console.error('Settings form not found!');
+            }
+            
+            // Make sure tabs don't interfere with form submission
+            const tabs = document.querySelectorAll('[data-bs-toggle="tab"]');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function(event) {
+                    console.log('Tab clicked:', this.id);
+                });
+            });
+        });
+    </script>
+</body>
+</html>

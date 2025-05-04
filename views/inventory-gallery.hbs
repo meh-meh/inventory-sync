@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Inventory Gallery View</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <style>
+        .inventory-table th, .inventory-table td {
+            min-width: 100px;
+            white-space: nowrap;
+        }
+        .inventory-table .image-cell {
+            min-width: 70px;
+        }
+        .inventory-table .name-cell {
+            min-width: 200px;
+            white-space: normal;
+        }
+        .stock-warning { color: #ffc107; }
+        .stock-danger { color: #dc3545; }
+        .stock-good { color: #198754; }
+        .page-navigator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .page-navigator .page-input {
+            width: 60px;
+            text-align: center;
+            margin: 0 10px;
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .search-box {
+            max-width: 300px;
+        }
+        .gallery-sticky-header {
+            position: sticky;
+            top: 0;
+            background-color: white;
+            z-index: 100;
+            padding-top: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .content-area {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Etsy Inventory</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/inventory">Inventory</a>
+                <a class="nav-link active" href="/inventory/gallery">Gallery View</a>
+                <a class="nav-link" href="/orders">Orders</a>
+                <a class="nav-link" href="/sync">Sync</a>
+                <a class="nav-link" href="/settings">Settings</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="gallery-sticky-header">
+            <div class="row mt-3 justify-content-between align-items-center">
+                <div class="col d-flex align-items-center">
+                    <h2>Inventory Gallery View</h2>
+                    
+                </div>
+                <div class="col d-flex justify-content-end align-items-center">
+                    <div class="btn-group mb-3">
+                        <button id="addProduct" class="btn btn-success">Add Product</button>
+                        <button id="addProperty" class="btn btn-primary">Add Property</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row justify-content-between align-items-center">
+                <div class="col d-flex input-group search-box">
+                    <input type="text" id="searchInput" class="form-control" placeholder="Search products...">
+                    <button class="btn btn-outline-secondary" type="button" id="searchBtn">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+                <div class="col d-flex justify-content-end align-items-center">
+                    <a href="/inventory" class="btn btn-outline-secondary ms-3">
+                        <i class="bi bi-table"></i> Switch to Table View
+                    </a>
+            </div>
+            
+            <div class="row justify-content-between align-items-center">
+                <div class="col d-flex align-items-center" id="itemsPerPageContainer">
+                    <!-- This will be populated by JavaScript -->
+                </div>
+                <div class="col d-flex align-items-center justify-content-center" id="pageNavigatorContainer">
+                    <!-- This will be populated by JavaScript -->
+                </div>
+                <div class="col d-flex align-items-center justify-content-end" id="countInfo">
+                    <!-- This will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+        
+        <div class="content-area">
+            <div class="row">
+                <div class="col">
+                    <div id="tableView" class="position-relative">
+                        <div id="tableLoading" class="loading-overlay">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Product Modal -->
+    <div class="modal fade" id="addProductModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add New Product</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addProductForm">
+                        <div class="mb-3">
+                            <label for="sku" class="form-label">SKU</label>
+                            <input type="text" class="form-control" id="sku" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Name</label>
+                            <input type="text" class="form-control" id="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="location" class="form-label">Storage Location</label>
+                            <input type="text" class="form-control" id="location">
+                        </div>
+                        <div class="mb-3">
+                            <label for="quantity" class="form-label">Initial Quantity</label>
+                            <input type="number" class="form-control" id="quantity" value="0" min="0">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveProduct">Add Product</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global state for managing inventory table
+        const tableState = {
+            currentPage: 1,
+            pageSize: 10,
+            sortColumn: 'sku',
+            sortDirection: 'asc',
+            search: '',
+            data: [],
+            totalPages: 1,
+            totalItems: 0
+        };
+
+        // Initialize Bootstrap modals
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof bootstrap !== 'undefined') {
+                const addProductModal = new bootstrap.Modal(document.getElementById('addProductModal'));
+                console.log('Bootstrap modals initialized');
+            } else {
+                console.error('Bootstrap not loaded properly');
+            }
+            
+            // Load saved page size preference
+            const savedItemsPerPage = localStorage.getItem('inventoryItemsPerPage');
+            if (savedItemsPerPage) {
+                tableState.pageSize = parseInt(savedItemsPerPage);
+            }
+            
+            // Load the data
+            loadTableData();
+        });
+        
+        // Function to load data for the gallery view
+        async function loadTableData() {
+            // Create or show loading spinner
+            let loadingSpinner = document.getElementById('tableLoading');
+            if (!loadingSpinner) {
+                // If the spinner doesn't exist, recreate it
+                const tableViewContainer = document.getElementById('tableView');
+                loadingSpinner = document.createElement('div');
+                loadingSpinner.id = 'tableLoading';
+                loadingSpinner.className = 'loading-overlay';
+                loadingSpinner.innerHTML = `
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                `;
+                tableViewContainer.appendChild(loadingSpinner);
+            }
+            loadingSpinner.style.display = 'flex';
+            
+            try {
+                // Build query string - using URLSearchParams for proper URL encoding
+                const queryParams = new URLSearchParams({
+                    page: tableState.currentPage,
+                    limit: tableState.pageSize,
+                    sort: tableState.sortColumn,
+                    order: tableState.sortDirection === 'asc' ? 'asc' : 'desc',
+                    search: tableState.search
+                });
+                
+                // Make the API request
+                const response = await fetch(`/inventory/api/data?${queryParams}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch inventory data: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                // Update state
+                tableState.data = data.products;
+                tableState.totalPages = data.pagination.totalPages;
+                tableState.totalItems = data.pagination.totalItems;
+                
+                // Update count info
+                const countInfo = document.getElementById('countInfo');
+                if (countInfo) {
+                    const start = (tableState.currentPage - 1) * tableState.pageSize + 1;
+                    const end = Math.min(start + tableState.pageSize - 1, data.pagination.totalItems);
+                    countInfo.textContent = `Showing ${start} to ${end} of ${data.pagination.totalItems} products`;
+                }
+                
+                // Render the gallery view with received data
+                renderTableView();
+                
+                console.log(`Gallery view data loaded: ${data.products.length} products on page ${tableState.currentPage} of ${tableState.totalPages}`);
+            } catch (error) {
+                console.error('Error loading gallery data:', error);
+                alert('Failed to load inventory data: ' + error.message);
+            } finally {
+                // Find and hide loading spinner (it might have been recreated during renderTableView)
+                loadingSpinner = document.getElementById('tableLoading');
+                if (loadingSpinner) {
+                    loadingSpinner.style.display = 'none';
+                }
+            }
+        }
+
+        // Function to render table view
+        function renderTableView() {
+            const tableViewContainer = document.getElementById('tableView');
+            const itemsPerPageContainer = document.getElementById('itemsPerPageContainer');
+            const pageNavigatorContainer = document.getElementById('pageNavigatorContainer');
+            const countInfoElement = document.getElementById('countInfo');
+            
+            // Save loading spinner before clearing container
+            const loadingSpinner = document.getElementById('tableLoading');
+            const hasSpinner = !!loadingSpinner;
+            
+            // Clear the containers
+            tableViewContainer.innerHTML = '';
+            itemsPerPageContainer.innerHTML = '';
+            pageNavigatorContainer.innerHTML = '';
+            
+            // If we had a spinner, add it back first
+            if (hasSpinner) {
+                const newSpinner = document.createElement('div');
+                newSpinner.id = 'tableLoading';
+                newSpinner.className = 'loading-overlay';
+                newSpinner.innerHTML = `
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                `;
+                newSpinner.style.display = 'none'; // Initially hidden
+                tableViewContainer.appendChild(newSpinner);
+            }
+            
+            // Create items per page dropdown in the dedicated container
+            const itemsPerPageDropdown = document.createElement('div');
+            itemsPerPageDropdown.className = 'd-flex align-items-center';
+            itemsPerPageDropdown.innerHTML = `
+                <label class="me-2">Show:</label>
+                <select id="itemsPerPage" class="form-select form-select-sm" style="width: auto;">
+                    <option value="10" ${tableState.pageSize === 10 ? 'selected' : ''}>10</option>
+                    <option value="25" ${tableState.pageSize === 25 ? 'selected' : ''}>25</option>
+                    <option value="50" ${tableState.pageSize === 50 ? 'selected' : ''}>50</option>
+                    <option value="100" ${tableState.pageSize === 100 ? 'selected' : ''}>100</option>
+                </select>
+                <span class="ms-2">items per page</span>
+            `;
+            itemsPerPageContainer.appendChild(itemsPerPageDropdown);
+            
+            // Update count info in the dedicated element
+            if (countInfoElement) {
+                if (tableState.totalItems > 0) {
+                    const start = (tableState.currentPage - 1) * tableState.pageSize + 1;
+                    const end = Math.min(start + tableState.pageSize - 1, tableState.totalItems);
+                    countInfoElement.innerHTML = `<span>Showing ${start} to ${end} of ${tableState.totalItems} products</span>`;
+                } else {
+                    countInfoElement.innerHTML = '<span>No items to display</span>';
+                }
+            }
+            
+            // Add items per page change event
+            document.getElementById('itemsPerPage').addEventListener('change', function(e) {
+                const newPageSize = parseInt(e.target.value);
+                tableState.pageSize = newPageSize;
+                
+                // Reset to first page
+                tableState.currentPage = 1;
+                
+                // Save to local storage
+                localStorage.setItem('inventoryItemsPerPage', newPageSize);
+                
+                // Reload the data
+                loadTableData();
+            });
+            
+            // Create card container
+            const cardContainer = document.createElement('div');
+            cardContainer.className = 'card';
+            
+            // Create card body
+            const cardBody = document.createElement('div');
+            cardBody.className = 'card-body p-0'; // Remove padding for table to take full width
+            
+            // Create table
+            const table = document.createElement('table');
+            table.className = 'table table-hover mb-0 inventory-table';
+            
+            // Create table header with sort functionality
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            
+            // Define columns
+            const columns = [
+                { key: 'image', label: 'Image', sortable: false, cellClass: 'image-cell' },
+                { key: 'sku', label: 'SKU', sortable: true },
+                { key: 'name', label: 'Name', sortable: true, cellClass: 'name-cell' },
+                { key: 'location', label: 'Location', sortable: true },
+                { key: 'quantity_on_hand', label: 'On Hand', sortable: true },
+                { key: 'quantity_available', label: 'Available', sortable: true },
+                { key: 'etsy_data.quantity', label: 'Etsy Qty', sortable: true },
+                { key: 'shopify_data.quantity', label: 'Shopify Qty', sortable: true }
+            ];
+            
+            // Add header cells
+            columns.forEach(column => {
+                const th = document.createElement('th');
+                th.className = column.cellClass || '';
+                
+                if (column.sortable) {
+                    th.style.cursor = 'pointer';
+                    th.innerHTML = `
+                        ${column.label}
+                        <span class="sort-icon ms-1">
+                            ${column.key === tableState.sortColumn ? 
+                                (tableState.sortDirection === 'asc' ? 
+                                    '<i class="bi bi-caret-up-fill"></i>' : 
+                                    '<i class="bi bi-caret-down-fill"></i>'
+                                ) : 
+                                '<i class="bi bi-arrow-down-up text-muted"></i>'
+                            }
+                        </span>
+                    `;
+                    th.setAttribute('data-column', column.key);
+                    
+                    // Add sort event
+                    th.addEventListener('click', function() {
+                        if (tableState.sortColumn === column.key) {
+                            // Toggle sort direction if same column
+                            tableState.sortDirection = tableState.sortDirection === 'asc' ? 'desc' : 'asc';
+                        } else {
+                            // Set new sort column and default to asc
+                            tableState.sortColumn = column.key;
+                            tableState.sortDirection = 'asc';
+                        }
+                        tableState.currentPage = 1; // Reset to first page
+                        loadTableData();
+                    });
+                } else {
+                    th.textContent = column.label;
+                }
+                
+                headerRow.appendChild(th);
+            });
+            
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            
+            // Create table body
+            const tbody = document.createElement('tbody');
+            
+            // Check if there are products
+            if (tableState.data.length === 0) {
+                const emptyRow = document.createElement('tr');
+                const emptyCell = document.createElement('td');
+                emptyCell.colSpan = columns.length;
+                emptyCell.textContent = 'No products found';
+                emptyCell.className = 'text-center p-4';
+                emptyRow.appendChild(emptyCell);
+                tbody.appendChild(emptyRow);
+            } else {
+                // Add products
+                tableState.data.forEach(product => {
+                    const tr = document.createElement('tr');
+                    tr.style.cursor = 'pointer';
+                    tr.setAttribute('data-sku', product.sku);
+                    
+                    // Add image cell
+                    const imageCell = document.createElement('td');
+                    imageCell.className = 'image-cell';
+                    const img = document.createElement('img');
+                    img.className = 'img-thumbnail';
+                    img.width = 50;
+                    img.alt = product.name || 'Product image';
+                    
+                    // Handle image source - simplified to just use the url property
+                    if (product.etsy_data && product.etsy_data.images && product.etsy_data.images.length > 0) {
+                        // Just use the main image URL since we don't have thumbnail variants
+                        img.src = product.etsy_data.images[0].url;
+                        
+                        // Add error handler for image loading
+                        img.onerror = function() {
+                            this.onerror = null;
+                            this.style.display = 'none'; // Hide broken images
+                        };
+                    } else {
+                        // If no image available, show a text indicator instead
+                        img.style.display = 'none';
+                        const noImg = document.createElement('span');
+                        noImg.className = 'badge bg-secondary';
+                        noImg.textContent = 'No image';
+                        imageCell.appendChild(noImg);
+                    }
+                    imageCell.appendChild(img);
+                    tr.appendChild(imageCell);
+                    
+                    // Add SKU cell
+                    const skuCell = document.createElement('td');
+                    skuCell.textContent = product.sku || '';
+                    tr.appendChild(skuCell);
+                    
+                    // Add Name cell
+                    const nameCell = document.createElement('td');
+                    nameCell.className = 'name-cell';
+                    nameCell.textContent = product.name || '';
+                    tr.appendChild(nameCell);
+                    
+                    // Add Location cell
+                    const locationCell = document.createElement('td');
+                    locationCell.textContent = product.location || '';
+                    tr.appendChild(locationCell);
+                    
+                    // Add On Hand cell
+                    const onHandCell = document.createElement('td');
+                    onHandCell.textContent = product.quantity_on_hand || 0;
+                    tr.appendChild(onHandCell);
+                    
+                    // Add Available cell
+                    const availQty = product.quantity_available || 0;
+                    const availCell = document.createElement('td');
+                    let stockClass = 'stock-good';
+                    if (availQty <= 0) {
+                        stockClass = 'stock-danger';
+                    } else if (availQty < 5) {
+                        stockClass = 'stock-warning';
+                    }
+                    availCell.className = stockClass;
+                    availCell.textContent = availQty;
+                    tr.appendChild(availCell);
+                    
+                    // Add Etsy Qty cell
+                    const etsyQtyCell = document.createElement('td');
+                    etsyQtyCell.textContent = product.etsy_data?.quantity || 0;
+                    tr.appendChild(etsyQtyCell);
+                    
+                    // Add Shopify Qty cell
+                    const shopifyQtyCell = document.createElement('td');
+                    shopifyQtyCell.textContent = product.shopify_data?.quantity || 0;
+                    tr.appendChild(shopifyQtyCell);
+                    
+                    tbody.appendChild(tr);
+                });
+            }
+            
+            table.appendChild(tbody);
+            cardBody.appendChild(table);
+            cardContainer.appendChild(cardBody);
+            tableViewContainer.appendChild(cardContainer);
+            
+            // Create page navigator with input field in the dedicated container
+            const pageNavigator = document.createElement('div');
+            pageNavigator.className = 'page-navigator';
+            
+            // Previous page button
+            const prevButton = document.createElement('button');
+            prevButton.className = `btn btn-outline-secondary ${tableState.currentPage <= 1 ? 'disabled' : ''}`;
+            prevButton.innerHTML = '<i class="bi bi-chevron-left"></i>';
+            prevButton.disabled = tableState.currentPage <= 1;
+            prevButton.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (tableState.currentPage > 1) {
+                    tableState.currentPage--;
+                    console.log('Navigation: Moving to previous page:', tableState.currentPage);
+                    loadTableData();
+                }
+            });
+            pageNavigator.appendChild(prevButton);
+            
+            // Page input and total
+            const pageInputGroup = document.createElement('div');
+            pageInputGroup.className = 'd-flex align-items-center mx-2';
+            pageInputGroup.innerHTML = `
+                <span class="me-2">Page</span>
+                <input type="number" class="form-control form-control-sm page-input" 
+                    value="${tableState.currentPage}" min="1" max="${tableState.totalPages}">
+                <span class="ms-2">of ${tableState.totalPages}</span>
+            `;
+            pageNavigator.appendChild(pageInputGroup);
+            
+            // Next page button
+            const nextButton = document.createElement('button');
+            nextButton.className = `btn btn-outline-secondary ${tableState.currentPage >= tableState.totalPages || tableState.totalPages === 0 ? 'disabled' : ''}`;
+            nextButton.innerHTML = '<i class="bi bi-chevron-right"></i>';
+            nextButton.disabled = tableState.currentPage >= tableState.totalPages || tableState.totalPages === 0;
+            nextButton.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (tableState.currentPage < tableState.totalPages) {
+                    tableState.currentPage++;
+                    console.log('Navigation: Moving to next page:', tableState.currentPage);
+                    loadTableData();
+                }
+            });
+            pageNavigator.appendChild(nextButton);
+            
+            // Add input event for page field
+            pageNavigatorContainer.appendChild(pageNavigator);
+            
+            const pageInput = pageNavigator.querySelector('.page-input');
+            if (pageInput) {
+                pageInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const newPage = parseInt(e.target.value);
+                        if (newPage && newPage >= 1 && newPage <= tableState.totalPages) {
+                            if (newPage !== tableState.currentPage) {
+                                tableState.currentPage = newPage;
+                                loadTableData();
+                            }
+                        } else {
+                            // Reset to current page if invalid
+                            e.target.value = tableState.currentPage;
+                        }
+                    }
+                });
+                
+                // Add blur event for page field
+                pageInput.addEventListener('blur', function(e) {
+                    const newPage = parseInt(e.target.value);
+                    if (newPage && newPage >= 1 && newPage <= tableState.totalPages) {
+                        if (newPage !== tableState.currentPage) {
+                            tableState.currentPage = newPage;
+                            loadTableData();
+                        }
+                    } else {
+                        // Reset to current page if invalid
+                        e.target.value = tableState.currentPage;
+                    }
+                });
+            }
+            
+            // Add row click event listeners
+            tbody.addEventListener('click', function(e) {
+                const tr = e.target.closest('tr');
+                if (tr && tr.hasAttribute('data-sku')) {
+                    const sku = tr.getAttribute('data-sku');
+                    window.location.href = `/inventory/details/${sku}`;
+                }
+            });
+        }
+        
+        // Search functionality
+        document.getElementById('searchBtn').addEventListener('click', function() {
+            performSearch();
+        });
+        
+        document.getElementById('searchInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+        
+        function performSearch() {
+            const searchTerm = document.getElementById('searchInput').value.trim();
+            
+            // Update search term
+            tableState.search = searchTerm;
+            
+            // Reset to first page
+            tableState.currentPage = 1;
+            
+            // Load data
+            loadTableData();
+        }
+        
+        // Handle adding new product
+        document.getElementById('addProduct').addEventListener('click', function() {
+            console.log('Add product button clicked');
+            const modal = new bootstrap.Modal(document.getElementById('addProductModal'));
+            modal.show();
+        });
+
+        // Handle saving new product
+        document.getElementById('saveProduct').addEventListener('click', async function() {
+            console.log('Save product button clicked');
+            const formData = {
+                sku: document.getElementById('sku').value,
+                name: document.getElementById('name').value,
+                location: document.getElementById('location').value,
+                quantity_on_hand: parseInt(document.getElementById('quantity').value) || 0
+            };
+
+            console.log('Saving product:', formData);
+
+            try {
+                const response = await fetch('/inventory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ changes: [formData] })
+                });
+
+                if (response.ok) {
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('addProductModal'));
+                    modal.hide();
+                    alert('Product added successfully!');
+                    
+                    // Reload data
+                    loadTableData();
+                } else {
+                    alert('Error adding product');
+                }
+            } catch (error) {
+                console.error('Error saving product:', error);
+                alert('Failed to save product');
+            }
+        });
+
+        // Handle adding new property
+        document.getElementById('addProperty').addEventListener('click', async function() {
+            console.log('Add property button clicked');
+            const propertyName = prompt('Enter new property name:');
+            if (propertyName) {
+                try {
+                    const response = await fetch('/inventory/properties', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ propertyName })
+                    });
+                    
+                    if (response.ok) {
+                        alert('Property added successfully!');
+                        location.reload();
+                    } else {
+                        alert('Failed to add property');
+                    }
+                } catch (error) {
+                    console.error('Error adding property:', error);
+                    alert('Error adding property');
+                }
+            }
+        });
+    </script>
+</body>
+</html>

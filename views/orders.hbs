@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Order Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+    <style>
+        .marketplace-badge {
+            font-size: 0.7em;
+            padding: 2px 5px;
+            border-radius: 3px;
+            margin-right: 5px;
+        }
+        .etsy-badge { background-color: #F56400; color: white; }
+        .shopify-badge { background-color: #96BF48; color: white; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Inventory Manager</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/inventory">Inventory</a>
+                <a class="nav-link active" href="/orders">Orders</a>
+                <a class="nav-link" href="/sync">Sync</a>
+                <a class="nav-link" href="/settings">Settings</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        {{#if syncStatus}}
+        <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
+            {{#if (eq syncStatus "0")}}
+                No new orders to sync
+            {{else}}
+                Successfully synced {{syncStatus}} new order(s)
+            {{/if}}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {{/if}}
+    </div>
+
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>Orders</h1>
+            <div class="btn-group" role="group">
+                <a href="/sync/sync-orders?marketplace=etsy" class="btn btn-outline-primary">
+                    <i class="bi bi-arrow-repeat me-1"></i> Sync Etsy Orders
+                </a>
+                <a href="/sync/sync-orders?marketplace=shopify" class="btn btn-outline-success">
+                    <i class="bi bi-arrow-repeat me-1"></i> Sync Shopify Orders
+                </a>
+            </div>
+        </div>
+        
+        <!-- Marketplace Filter -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex gap-3">
+                    <div class="ms-2">
+                        <span class="me-2">Filter by marketplace:</span>
+                        <div class="btn-group" role="group">
+                            <a href="/orders?marketplace=all" class="btn btn-sm {{#if (eq activeMarketplace 'all')}}btn-dark{{else}}btn-outline-dark{{/if}}">
+                                All ({{counts.total}})
+                            </a>
+                            <a href="/orders?marketplace=etsy" class="btn btn-sm {{#if (eq activeMarketplace 'etsy')}}btn-primary{{else}}btn-outline-primary{{/if}}">
+                                Etsy ({{counts.etsy}})
+                            </a>
+                            <a href="/orders?marketplace=shopify" class="btn btn-sm {{#if (eq activeMarketplace 'shopify')}}btn-success{{else}}btn-outline-success{{/if}}">
+                                Shopify ({{counts.shopify}})
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{!-- Unshipped Orders Section --}}
+        <div class="card mb-4">
+            <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#unshippedSection">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2 class="mb-0 h5">Unshipped Orders ({{unshippedOrders.length}})</h2>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+            </div>
+            <div class="collapse show" id="unshippedSection">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Order</th>
+                                    <th>Date</th>
+                                    <th>Items</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{#each unshippedOrders}}
+                                <tr>
+                                    <td>
+                                        <span class="marketplace-badge {{#if (eq this.marketplace 'etsy')}}etsy-badge{{else}}shopify-badge{{/if}}">
+                                            {{#if (eq this.marketplace 'etsy')}}Etsy{{else}}Shopify{{/if}}
+                                        </span>
+                                        <a href="/orders/{{this.order_id}}">
+                                            {{#if (eq this.marketplace 'etsy')}}
+                                                {{#if this.receipt_id}}#{{this.receipt_id}}{{else}}#{{this.order_id}}{{/if}}
+                                            {{else}}
+                                                {{#if this.shopify_order_number}}#{{this.shopify_order_number}}{{else}}#{{this.order_id}}{{/if}}
+                                            {{/if}}
+                                        </a>
+                                    </td>
+                                    <td>{{formatDate this.order_date}}</td>
+                                    <td>
+                                        {{#each this.items}}
+                                            {{this.quantity}}x {{this.sku}}<br>
+                                        {{/each}}
+                                    </td>
+                                    <td>
+                                        {{#if (eq this.marketplace 'etsy')}}
+                                        <button onclick="syncEtsyOrder('{{this.receipt_id}}')" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        {{else}}
+                                        <button onclick="syncShopifyOrder('{{this.order_id}}')" class="btn btn-sm btn-success">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        {{/if}}
+                                    </td>
+                                </tr>
+                                {{/each}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{!-- Recently Shipped Orders Section --}}
+        <div class="card mb-4">
+            <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#shippedSection">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2 class="mb-0 h5">Recently Shipped Orders ({{recentShippedOrders.length}})</h2>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+            </div>
+            <div class="collapse show" id="shippedSection">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Order</th>
+                                    <th>Ship Date</th>
+                                    <th>Items</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{#each recentShippedOrders}}
+                                <tr>
+                                    <td>
+                                        <span class="marketplace-badge {{#if (eq this.marketplace 'etsy')}}etsy-badge{{else}}shopify-badge{{/if}}">
+                                            {{#if (eq this.marketplace 'etsy')}}Etsy{{else}}Shopify{{/if}}
+                                        </span>
+                                        <a href="/orders/{{this.order_id}}">
+                                            {{#if (eq this.marketplace 'etsy')}}
+                                                {{#if this.receipt_id}}#{{this.receipt_id}}{{else}}#{{this.order_id}}{{/if}}
+                                            {{else}}
+                                                {{#if this.shopify_order_number}}#{{this.shopify_order_number}}{{else}}#{{this.order_id}}{{/if}}
+                                            {{/if}}
+                                        </a>
+                                    </td>
+                                    <td>{{formatDate this.shipped_date}}</td>
+                                    <td>
+                                        {{#each this.items}}
+                                            {{this.quantity}}x {{this.sku}}<br>
+                                        {{/each}}
+                                    </td>
+                                    <td>
+                                        {{#if (eq this.marketplace 'etsy')}}
+                                        <button onclick="syncEtsyOrder('{{this.receipt_id}}')" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        {{else}}
+                                        <button onclick="syncShopifyOrder('{{this.order_id}}')" class="btn btn-sm btn-success">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        {{/if}}
+                                    </td>
+                                </tr>
+                                {{/each}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{!-- Canceled Orders Section --}}
+        <div class="card mb-4">
+            <div class="card-header" role="button" data-bs-toggle="collapse" data-bs-target="#canceledSection">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2 class="mb-0 h5">Canceled Orders ({{cancelledOrders.length}})</h2>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+            </div>
+            <div class="collapse" id="canceledSection">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Order</th>
+                                    <th>Date</th>
+                                    <th>Items</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{#each cancelledOrders}}
+                                <tr>
+                                    <td>
+                                        <span class="marketplace-badge {{#if (eq this.marketplace 'etsy')}}etsy-badge{{else}}shopify-badge{{/if}}">
+                                            {{#if (eq this.marketplace 'etsy')}}Etsy{{else}}Shopify{{/if}}
+                                        </span>
+                                        <a href="/orders/{{this.order_id}}">
+                                            {{#if (eq this.marketplace 'etsy')}}
+                                                {{#if this.receipt_id}}#{{this.receipt_id}}{{else}}#{{this.order_id}}{{/if}}
+                                            {{else}}
+                                                {{#if this.shopify_order_number}}#{{this.shopify_order_number}}{{else}}#{{this.order_id}}{{/if}}
+                                            {{/if}}
+                                        </a>
+                                    </td>
+                                    <td>{{formatDate this.order_date}}</td>
+                                    <td>
+                                        {{#each this.items}}
+                                            {{this.quantity}}x {{this.sku}}<br>
+                                        {{/each}}
+                                    </td>
+                                    <td>
+                                        {{#if (eq this.marketplace 'etsy')}}
+                                        <button onclick="syncEtsyOrder('{{this.receipt_id}}')" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        {{else}}
+                                        <button onclick="syncShopifyOrder('{{this.order_id}}')" class="btn btn-sm btn-success">
+                                            <i class="bi bi-arrow-clockwise"></i>
+                                        </button>
+                                        {{/if}}
+                                    </td>
+                                </tr>
+                                {{/each}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        async function syncEtsyOrder(id) {
+            try {
+                const response = await fetch(`/orders/${id}/sync-status`, {
+                    method: 'POST'
+                });
+                if (response.ok) {
+                    location.reload();
+                } else {
+                    alert('Failed to sync order status');
+                }
+            } catch (error) {
+                console.error('Error syncing order status:', error);
+                alert('Error syncing order status');
+            }
+        }
+        
+        async function syncShopifyOrder(id) {
+            try {
+                const response = await fetch(`/orders/${id}/sync-shopify-status`, {
+                    method: 'POST'
+                });
+                if (response.ok) {
+                    location.reload();
+                } else {
+                    alert('Failed to sync Shopify order status');
+                }
+            } catch (error) {
+                console.error('Error syncing Shopify order status:', error);
+                alert('Error syncing Shopify order status');
+            }
+        }
+    </script>
+</body>
+</html>
