@@ -2,14 +2,12 @@ const express = require('express');
 const router = express.Router();
 const dotenv = require('@dotenvx/dotenvx');
 const crypto = require('crypto');
-const fs = require('fs').promises;
-const path = require('path');
 const { getShopId, getShippingProfiles } = require('../utils/etsy-helpers');
 // Add multer for form-data parsing if using fetch with FormData
 const multer = require('multer');
 const upload = multer();
-// Add Shopify API client
-const Shopify = require('shopify-api-node');
+const shopifyHelpers = require('../utils/shopify-helpers'); // Import shopify-helpers
+const { logger } = require('../utils/logger'); // Import logger
 
 // Settings Dashboard
 router.get('/', async (req, res) => {
@@ -43,7 +41,8 @@ router.get('/', async (req, res) => {
                     dotenv.set('ETSY_API_KEY', process.env.ETSY_API_KEY, { encrypt: true });
                 }
             } catch (error) {
-                console.error('Error fetching Etsy shop details:', error);
+                // Use logger instead of console.error
+                logger.error('Error fetching Etsy shop details:', { error: error.message });
             }
         }
         
@@ -67,7 +66,8 @@ router.get('/', async (req, res) => {
             shopifyConnected
         });
     } catch (error) {
-        console.error('Error loading settings:', error);
+        // Use logger instead of console.error
+        logger.error('Error loading settings:', { error: error.message, stack: error.stack });
         req.flash('error', 'Failed to load settings');
         res.redirect('/');
     }
@@ -76,7 +76,8 @@ router.get('/', async (req, res) => {
 // Save general settings - updated to handle both regular form POST and fetch API FormData
 router.post('/general', upload.none(), async (req, res) => {
     try {
-        console.log('Received settings form data:', req.body);
+        // Use logger.debug or logger.info instead of console.log
+        logger.debug('Received settings form data:', req.body);
         
         const {
             lowStockThreshold,
@@ -86,7 +87,8 @@ router.post('/general', upload.none(), async (req, res) => {
             notificationsEnabled
         } = req.body;
         
-        console.log('Processing settings with values:', {
+        // Use logger.debug or logger.info instead of console.log
+        logger.debug('Processing settings with values:', {
             lowStockThreshold,
             orderSyncDays,
             autoSyncEnabled,
@@ -108,7 +110,7 @@ router.post('/general', upload.none(), async (req, res) => {
         process.env.AUTO_SYNC_INTERVAL = autoSyncInterval;
         process.env.NOTIFICATIONS_ENABLED = notificationsEnabled === 'on' || notificationsEnabled === true ? 'true' : 'false';
         
-        console.log('After saving, process.env values:', {
+        logger.info('Settings saved successfully', {
             LOW_STOCK_THRESHOLD: process.env.LOW_STOCK_THRESHOLD,
             ORDER_SYNC_DAYS: process.env.ORDER_SYNC_DAYS,
             AUTO_SYNC_ENABLED: process.env.AUTO_SYNC_ENABLED,
@@ -126,15 +128,10 @@ router.post('/general', upload.none(), async (req, res) => {
             res.redirect('/settings');
         }
     } catch (error) {
-        console.error('Error saving settings:', error);
-        
-        // Handle different types of responses based on request type
-        if (req.xhr || req.headers.accept?.includes('json')) {
-            res.status(500).json({ success: false, message: 'Failed to save settings' });
-        } else {
-            req.flash('error', 'Failed to save settings');
-            res.redirect('/settings');
-        }
+        // Use logger instead of console.error
+        logger.error('Error saving general settings:', { error: error.message, stack: error.stack });
+        req.flash('error', 'Failed to save settings');
+        res.redirect('/settings');
     }
 });
 
@@ -182,7 +179,8 @@ router.post('/disconnect-etsy', async (req, res) => {
         req.flash('success', 'Successfully disconnected from Etsy');
         res.redirect('/settings');
     } catch (error) {
-        console.error('Error disconnecting Etsy:', error);
+        // Use logger instead of console.error
+        logger.error('Error disconnecting Etsy:', { error: error.message, stack: error.stack });
         req.flash('error', 'Failed to disconnect from Etsy');
         res.redirect('/settings');
     }
@@ -211,11 +209,10 @@ router.post('/connect-shopify', upload.none(), async (req, res) => {
             process.env.SHOPIFY_ACCESS_TOKEN = accessToken;
             
             // Use the shopify-helpers module to test the connection
-            const shopifyHelpers = require('../utils/shopify-helpers');
-            
             // Try to fetch shop info to verify credentials
             const shopInfo = await shopifyHelpers.getShopInfo();
-            console.log('Successfully connected to Shopify shop:', shopInfo.name);
+            // Use logger.info instead of console.log
+            logger.info('Successfully connected to Shopify shop:', { shopName: shopInfo.name });
             
             // Save Shopify credentials only after successful verification
             dotenv.set('SHOPIFY_SHOP_NAME', cleanShopName);
@@ -233,7 +230,8 @@ router.post('/connect-shopify', upload.none(), async (req, res) => {
                 return res.redirect('/settings');
             }
         } catch (apiError) {
-            console.error('Shopify API connection error:', apiError.message);
+            // Use logger.error instead of console.error
+            logger.error('Shopify API connection error:', { error: apiError.message });
             
             // Handle AJAX requests differently
             if (req.xhr || req.headers.accept?.includes('json')) {
@@ -247,7 +245,8 @@ router.post('/connect-shopify', upload.none(), async (req, res) => {
             }
         }
     } catch (error) {
-        console.error('Error connecting to Shopify:', error);
+        // Use logger.error instead of console.error
+        logger.error('Error connecting to Shopify:', { error: error.message, stack: error.stack });
         
         // Handle AJAX requests differently
         if (req.xhr || req.headers.accept?.includes('json')) {
@@ -276,7 +275,8 @@ router.post('/disconnect-shopify', async (req, res) => {
         req.flash('success', 'Successfully disconnected from Shopify');
         res.redirect('/settings');
     } catch (error) {
-        console.error('Error disconnecting Shopify:', error);
+        // Use logger.error instead of console.error
+        logger.error('Error disconnecting Shopify:', { error: error.message, stack: error.stack });
         req.flash('error', 'Failed to disconnect from Shopify');
         res.redirect('/settings');
     }
@@ -308,16 +308,14 @@ router.get('/shipping-profiles', async (req, res) => {
             profiles: profilesWithSelection 
         });
     } catch (error) {
-        console.error('Error fetching shipping profiles:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to fetch shipping profiles' 
-        });
+        // Use logger.error instead of console.error
+        logger.error('Error fetching Etsy shipping profiles:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Error fetching shipping profiles' });
     }
 });
 
 // Save selected shipping profiles
-router.post('/shipping-profiles', upload.none(), async (req, res) => {
+router.post('/shipping-profiles', async (req, res) => {
     try {
         const { selectedProfiles } = req.body;
         
@@ -336,11 +334,9 @@ router.post('/shipping-profiles', upload.none(), async (req, res) => {
             message: 'Shipping profiles saved successfully' 
         });
     } catch (error) {
-        console.error('Error saving shipping profiles:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to save shipping profiles' 
-        });
+        // Use logger.error instead of console.error
+        logger.error('Error saving shipping profiles:', { error: error.message });
+        res.status(500).json({ success: false, message: 'Error saving shipping profiles' });
     }
 });
 

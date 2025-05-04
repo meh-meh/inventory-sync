@@ -49,6 +49,83 @@ function configHandlebarsHelpers(hbs) {
     hbs.registerHelper('lt', function(a, b) {
         return a < b;
     });
+
+    /**
+     * Handlebars helper to check if two values are equal
+     * @param {*} a - First value
+     * @param {*} b - Second value
+     * @param {Object} options - Handlebars options object
+     * @returns {String} - Rendered block if equal, otherwise inverse block
+     */
+    hbs.registerHelper('ifeq', function(a, b, options) {
+        if (a === b) {
+            return options.fn(this);
+        } else {
+            return options.inverse(this);
+        }
+    });
+
+    /**
+     * Handlebars helper to check if two values are not equal
+     * @param {*} a - First value
+     * @param {*} b - Second value
+     * @param {Object} options - Handlebars options object
+     * @returns {String} - Rendered block if not equal, otherwise inverse block
+     */
+    hbs.registerHelper('ifnoteq', function(a, b, options) {
+        if (a !== b) {
+            return options.fn(this);
+        } else {
+            return options.inverse(this);
+        }
+    });
+
+    /**
+     * Handlebars helper for logical OR condition
+     * @param {*} a - First condition
+     * @param {*} b - Second condition
+     * @param {Object} options - Handlebars options object
+     * @returns {String} - Rendered block if either condition is truthy, otherwise inverse block
+     */
+    hbs.registerHelper('or', function(a, b, options) {
+        if (a || b) {
+            return options.fn(this);
+        } else {
+            return options.inverse(this);
+        }
+    });
+
+    /**
+     * Handlebars helper for logical AND condition
+     * @param {*} a - First condition
+     * @param {*} b - Second condition
+     * @param {Object} options - Handlebars options object
+     * @returns {String} - Rendered block if both conditions are truthy, otherwise inverse block
+     */
+    hbs.registerHelper('and', function(a, b, options) {
+        if (a && b) {
+            return options.fn(this);
+        } else {
+            return options.inverse(this);
+        }
+    });
+
+    /**
+     * Handlebars helper to check if an array or string includes a value
+     * @param {Array|String} collection - The array or string to check
+     * @param {*} value - The value to check for inclusion
+     * @param {Object} options - Handlebars options object
+     * @returns {String} - Rendered block if included, otherwise inverse block
+     */
+    hbs.registerHelper('includes', function(collection, value, options) {
+        if (collection && collection.includes(value)) {
+            return options.fn(this);
+        } else {
+            return options.inverse(this);
+        }
+    });
+
+    // ...existing code...
 }
 
 /**

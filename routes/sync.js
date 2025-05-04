@@ -1,26 +1,22 @@
 const express = require('express');
 const router = express.Router();
-const { getShopId, etsyFetch, authExpired, refreshAuth } = require('../utils/etsy-helpers');
-const { logger, trackRateLimit } = require('../utils/logger');
 const Product = require('../models/product');
 const Order = require('../models/order');
-const { ajaxSettings } = require('jquery');
-const fs = require('node:fs');
-const { pipeline } = require('node:stream/promises');
-const { Readable } = require('node:stream');
-const readline = require('readline');
-const path = require('path');
-const Shopify = require('shopify-api-node');
+const { logger } = require('../utils/logger');
+// Import etsyFetch and API_BASE_URL
+const { getShopId, etsyFetch, API_BASE_URL } = require('../utils/etsy-helpers');
 const shopifyHelpers = require('../utils/shopify-helpers');
+const fs = require('fs').promises;
+const path = require('path');
+const { Readable } = require('stream');
+// Import pipeline and readline
+const { pipeline } = require('stream/promises');
+const readline = require('readline');
+// Import performance from perf_hooks
+const { performance } = require('perf_hooks');
 
 // In-memory store for sync status
 const syncStatus = new Map();
-
-// Rate limited fetch function
-const rateLimitedFetch = async (url, options) => {
-    await trackRateLimit();
-    return fetch(url, options);
-};
 
 // Sync dashboard
 router.get('/', async (req, res) => {
@@ -61,6 +57,7 @@ router.get('/', async (req, res) => {
 
 // Helper function to fetch all listings in bulk
 async function fetchAllListings(shop_id, syncId) {
+    const startTime = performance.now();
     const listingCounts = {
         active: 0,
         draft: 0,
@@ -121,7 +118,10 @@ async function fetchAllListings(shop_id, syncId) {
     logger.info('Fetching all listings with complete data...');
     updateStatus(10); // Initial status update
     
+    // Define fetchLoopStartTime before the loop
+    const fetchLoopStartTime = performance.now();
     while (true) {
+        const loopIterationStartTime = performance.now();
         try {
             logger.debug(`Fetching ${states[i]} listings, offset ${offset}...`);
             
@@ -135,7 +135,8 @@ async function fetchAllListings(shop_id, syncId) {
                 redirect: 'follow'
             };
 
-            const response = await rateLimitedFetch(
+            // Use etsyFetch instead of the undefined rateLimitedFetch
+            const response = await etsyFetch(
                 `https://openapi.etsy.com/v3/application/shops/${shop_id}/listings?${urlencoded.toString()}`,
                 requestOptions
             );
@@ -193,15 +194,22 @@ async function fetchAllListings(shop_id, syncId) {
             });
             throw error; // Re-throw to handle in the calling function
         }
+        const loopIterationEndTime = performance.now();
+        logger.debug(`[Perf] Etsy fetchAllListings iteration took ${(loopIterationEndTime - loopIterationStartTime).toFixed(2)}ms`, { syncId, state: states[i], offset });
     }
+    const fetchLoopEndTime = performance.now();
+    logger.info(`[Perf] Etsy fetchAllListings loop took ${(fetchLoopEndTime - fetchLoopStartTime).toFixed(2)}ms`, { syncId });
 
     logger.info('Finished fetching all listings', { counts: listingCounts });
     updateStatus(30); // Final update after all listings are fetched
+    const endTime = performance.now();
+    logger.info(`[Perf] fetchAllListings took ${(endTime - startTime).toFixed(2)}ms`, { syncId });
     return { listings: allListings, counts: listingCounts };
 }
 
 // Helper function to clean up products that don't match selected shipping profiles
 async function removeProductsWithUnselectedShippingProfiles() {
+    const startTime = performance.now();
     try {
         // Get selected shipping profiles from environment variables
         const selectedShippingProfiles = process.env.SYNC_SHIPPING_PROFILES ? 
@@ -236,8 +244,11 @@ async function removeProductsWithUnselectedShippingProfiles() {
             ]
         };
 
+        const queryStartTime = performance.now();
         const productsToDelete = await Product.countDocuments(query);
-        
+        const queryEndTime = performance.now();
+        logger.info(`[Perf] removeProductsWithUnselectedShippingProfiles count query took ${(queryEndTime - queryStartTime).toFixed(2)}ms`);
+
         logger.info('Products cleanup assessment', {
             totalEtsyProducts,
             productsToDelete,
@@ -255,10 +266,14 @@ async function removeProductsWithUnselectedShippingProfiles() {
             };
         }
         
+        const deleteStartTime = performance.now();
         // Direct approach: execute the delete operation with the same query
         const result = await Product.deleteMany(query);
-        
-        logger.info(`Removed ${result.deletedCount} products with non-matching shipping profiles`);
+        const deleteEndTime = performance.now();
+        logger.info(`[Perf] removeProductsWithUnselectedShippingProfiles deleteMany took ${(deleteEndTime - deleteStartTime).toFixed(2)}ms`, { deletedCount: result.deletedCount });
+
+        const endTime = performance.now();
+        logger.info(`[Perf] removeProductsWithUnselectedShippingProfiles total took ${(endTime - startTime).toFixed(2)}ms`, { deletedCount: result.deletedCount });
         return result;
     } catch (error) {
         logger.error('Error removing products with unselected shipping profiles:', { 
@@ -338,7 +353,7 @@ router.get('/sync-etsy', async (req, res) => {
 
 router.get('/sync-shopify', async (req, res) => {
     try {
-        await syncShopifyProducts(req, res);
+        await syncShopifyProducts(req);
         res.json({ success: true, message: 'Shopify sync started successfully' });
     } catch (error) {
         logger.error('Error starting Shopify sync:', { error: error.message });
@@ -348,104 +363,35 @@ router.get('/sync-shopify', async (req, res) => {
 
 // Background Etsy product sync function
 async function syncEtsyProducts(syncId, req) {
+    const overallStartTime = performance.now();
+    const status = syncStatus.get(syncId);
     try {
-        const status = syncStatus.get(syncId);
-        if (!status) {
-            throw new Error('Sync status not found');
-        }
-        
+        logger.info('Starting Etsy product sync', { syncId });
         const shop_id = await getShopId();
-        logger.info('Starting Etsy sync in background', { shop_id, syncId });
-        
-        const tokenData = JSON.parse(process.env.TOKEN_DATA);
-        let syncCount = 0;
-        
-        const requestOptions = {
-            method: 'GET',
-            headers: {
-                'x-api-key': process.env.ETSY_API_KEY,
-                Authorization: `Bearer ${tokenData.access_token}`
-            }
-        };
-
-        // Update status to show we're fetching listings
-        status.progress = 10;
+        status.currentPhase = 'Fetching listings';
         syncStatus.set(syncId, status);
 
         // Fetch all listings
-        const { listings, counts } = await fetchAllListings(shop_id, syncId, requestOptions);
-        logger.info('Processing listings...', { total: listings.length, counts });
-        
-        // Update status with counts and progress
+        const { listings, counts } = await fetchAllListings(shop_id, syncId);
         status.counts = counts;
+        status.syncCount = listings.length;
         status.progress = 30;
+        status.currentPhase = 'Processing listings';
         syncStatus.set(syncId, status);
 
-        // Process listings in batches to avoid memory issues
-        const BATCH_SIZE = 50;
-        
-        for (let i = 0; i < listings.length; i += BATCH_SIZE) {
-            const batch = listings.slice(i, i + BATCH_SIZE);
-            const updates = [];
-
-            for (const listing of batch) {
-                try {
-                    const inventory = listing.inventory;
-                    
-                    if (inventory?.products?.length) {
-                        // Handle listings with variations
-                        for (const product of inventory.products) {
-                            const sku = product.sku || `ETSY-${listing.listing_id}${product.property_values?.length ? '-' + product.property_values.map(pv => pv.values[0]).join('-') : ''}`;
-                            
-                            updates.push({
-                                updateOne: {
-                                    filter: { sku },
-                                    update: {
-                                        $set: {
-                                            sku,
-                                            name: listing.title,
-                                            raw_etsy_data: {
-                                                listing,
-                                                inventory,
-                                                last_raw_sync: new Date()
-                                            },
-                                            etsy_data: {
-                                                listing_id: listing.listing_id.toString(),
-                                                title: listing.title,
-                                                description: listing.description,
-                                                price: listing.price.amount / listing.price.divisor,
-                                                quantity: product.offerings?.[0]?.quantity || 0,
-                                                status: listing.state,
-                                                tags: listing.tags || [],
-                                                shipping_profile_id: listing.shipping_profile_id?.toString(),
-                                                images: listing.images?.map(img => ({
-                                                    url: img.url_fullxfull,
-                                                    alt: img.alt_text || ''
-                                                })) || [],
-                                                last_synced: new Date()
-                                            }
-                                        },
-                                        $setOnInsert: {
-                                            quantity_on_hand: product.offerings?.[0]?.quantity || 0
-                                        }
-                                    },
-                                    upsert: true
-                                }
-                            });
-
-                            // Add variation details if they exist
-                            if (product.property_values?.length) {
-                                const properties = new Map();
-                                product.property_values.forEach(prop => {
-                                    properties.set(prop.property_name, prop.values[0]);
-                                });
-                                updates[updates.length - 1].updateOne.update.$set.properties = properties;
-                            }
-                        }
-                    } else {
-                        // Handle listings without variations
-                        const sku = `ETSY-${listing.listing_id}`;
-                        updates.push({
+        // Process listings
+        const processStartTime = performance.now();
+        const bulkOps = [];
+        for (const listing of listings) {
+            try {
+                const inventory = listing.inventory;
+                
+                if (inventory?.products?.length) {
+                    // Handle listings with variations
+                    for (const product of inventory.products) {
+                        const sku = product.sku || `ETSY-${listing.listing_id}${product.property_values?.length ? '-' + product.property_values.map(pv => pv.values[0]).join('-') : ''}`;
+                        
+                        bulkOps.push({
                             updateOne: {
                                 filter: { sku },
                                 update: {
@@ -454,7 +400,7 @@ async function syncEtsyProducts(syncId, req) {
                                         name: listing.title,
                                         raw_etsy_data: {
                                             listing,
-                                            inventory: null,
+                                            inventory,
                                             last_raw_sync: new Date()
                                         },
                                         etsy_data: {
@@ -462,7 +408,7 @@ async function syncEtsyProducts(syncId, req) {
                                             title: listing.title,
                                             description: listing.description,
                                             price: listing.price.amount / listing.price.divisor,
-                                            quantity: listing.quantity,
+                                            quantity: product.offerings?.[0]?.quantity || 0,
                                             status: listing.state,
                                             tags: listing.tags || [],
                                             shipping_profile_id: listing.shipping_profile_id?.toString(),
@@ -474,68 +420,105 @@ async function syncEtsyProducts(syncId, req) {
                                         }
                                     },
                                     $setOnInsert: {
-                                        quantity_on_hand: listing.quantity
+                                        quantity_on_hand: product.offerings?.[0]?.quantity || 0
                                     }
                                 },
                                 upsert: true
                             }
                         });
-                    }
-                } catch (error) {
-                    logger.error(`Error processing listing ${listing.listing_id}`, { 
-                        error: error.message,
-                        listing_id: listing.listing_id
-                    });
-                    continue;
-                }
-            }
 
-            // Perform bulk update for the batch
-            if (updates.length > 0) {
-                const result = await Product.bulkWrite(updates);
-                syncCount += result.upsertedCount + result.modifiedCount;
-                logger.debug(`Processed batch of ${updates.length} updates`, {
-                    upserted: result.upsertedCount,
-                    modified: result.modifiedCount
+                        // Add variation details if they exist
+                        if (product.property_values?.length) {
+                            const properties = new Map();
+                            product.property_values.forEach(prop => {
+                                properties.set(prop.property_name, prop.values[0]);
+                            });
+                            bulkOps[bulkOps.length - 1].updateOne.update.$set.properties = properties;
+                        }
+                    }
+                } else {
+                    // Handle listings without variations
+                    const sku = `ETSY-${listing.listing_id}`;
+                    bulkOps.push({
+                        updateOne: {
+                            filter: { sku },
+                            update: {
+                                $set: {
+                                    sku,
+                                    name: listing.title,
+                                    raw_etsy_data: {
+                                        listing,
+                                        inventory: null,
+                                        last_raw_sync: new Date()
+                                    },
+                                    etsy_data: {
+                                        listing_id: listing.listing_id.toString(),
+                                        title: listing.title,
+                                        description: listing.description,
+                                        price: listing.price.amount / listing.price.divisor,
+                                        quantity: listing.quantity,
+                                        status: listing.state,
+                                        tags: listing.tags || [],
+                                        shipping_profile_id: listing.shipping_profile_id?.toString(),
+                                        images: listing.images?.map(img => ({
+                                            url: img.url_fullxfull,
+                                            alt: img.alt_text || ''
+                                        })) || [],
+                                        last_synced: new Date()
+                                    }
+                                },
+                                $setOnInsert: {
+                                    quantity_on_hand: listing.quantity
+                                }
+                            },
+                            upsert: true
+                        }
+                    });
+                }
+            } catch (error) {
+                logger.error(`Error processing listing ${listing.listing_id}`, { 
+                    error: error.message,
+                    listing_id: listing.listing_id
                 });
-                
-                // Update status with progress
-                status.syncCount = syncCount;
-                
-                // Calculate progress (30-90% range for processing)
-                const batchProgress = Math.round((i + batch.length) / listings.length * 60);
-                status.progress = 30 + batchProgress; 
-                syncStatus.set(syncId, status);
+                continue;
             }
         }
+        const processEndTime = performance.now();
+        logger.info(`[Perf] Etsy listing processing loop took ${(processEndTime - processStartTime).toFixed(2)}ms`, { syncId, count: listings.length });
 
-        // Update progress to show we're cleaning up
-        status.progress = 90;
+        status.progress = 70;
+        status.currentPhase = 'Updating database';
         syncStatus.set(syncId, status);
-        
-        // Remove products that don't match the selected shipping profiles
+
+        // Perform bulk write
+        if (bulkOps.length > 0) {
+            const dbStartTime = performance.now();
+            const result = await Product.bulkWrite(bulkOps, { ordered: false });
+            const dbEndTime = performance.now();
+            logger.info(`[Perf] Etsy Product.bulkWrite took ${(dbEndTime - dbStartTime).toFixed(2)}ms`, { 
+                syncId,
+                inserted: result.insertedCount,
+                updated: result.modifiedCount,
+                upserted: result.upsertedCount
+            });
+        } else {
+            logger.info('No Etsy product changes to write to database', { syncId });
+        }
+
+        // Clean up products based on shipping profiles
+        status.progress = 90;
+        status.currentPhase = 'Cleaning up';
+        syncStatus.set(syncId, status);
         const cleanupResult = await removeProductsWithUnselectedShippingProfiles();
-        
-        // Final status update
-        status.removedCount = cleanupResult.deletedCount;
+        status.removedCount = cleanupResult.deletedCount || 0;
+
+        // Mark sync as complete
         status.progress = 100;
         status.complete = true;
+        status.currentPhase = 'Complete';
         syncStatus.set(syncId, status);
-        
-        const countSummary = Object.entries(counts)
-            .map(([status, count]) => `${count} ${status}`)
-            .join(', ');
-        
-        const successMessage = `Successfully synced ${syncCount} products from Etsy (${countSummary}). Removed ${cleanupResult.deletedCount} products with non-matching shipping profiles.`;
-        logger.info(successMessage);
-        
-        // Set the flash message to be shown on next page load
-        if (req.session) {
-            req.session.flash = {
-                success: successMessage
-            };
-        }
-        
+        logger.info('Etsy product sync completed successfully', { syncId });
+
     } catch (error) {
         logger.error('Error syncing Etsy products in background', { error: error.message });
         
@@ -555,6 +538,9 @@ async function syncEtsyProducts(syncId, req) {
         }
         
         throw error; // Re-throw to be caught by the caller
+    } finally {
+        const overallEndTime = performance.now();
+        logger.info(`[Perf] Overall syncEtsyProducts took ${(overallEndTime - overallStartTime).toFixed(2)}ms`, { syncId });
     }
 }
 
@@ -617,7 +603,7 @@ async function cleanupDataFiles(directoryPath, prefix, keepCount = 5) {
     }
 }
 
-async function syncShopifyProducts(req, res) {
+async function syncShopifyProducts(req) {
     const directoryPath = path.resolve(__dirname, '..', 'data');
     const filePrefix = 'shopify_products_';
     let fileName = path.resolve(directoryPath, `${filePrefix}${Date.now()}.jsonl`);
@@ -635,10 +621,7 @@ async function syncShopifyProducts(req, res) {
             fileName = path.resolve(directoryPath, existingData);
         } else { // If the file is older than 2 hours, fetch new data
             logger.info('Existing data file is old or missing, fetching new data from Shopify...');
-            const shopify = new Shopify({
-                shopName: process.env.SHOPIFY_SHOP_NAME,
-                accessToken: process.env.SHOPIFY_ACCESS_TOKEN
-            });
+            const shopify = shopifyHelpers.getShopifyClient();
 
             const query = `mutation {
                 bulkOperationRunQuery(
@@ -1111,206 +1094,169 @@ router.get('/sync-orders', async (req, res) => {
 
 // Sync Etsy orders
 async function syncEtsyOrders(req, res) {
+    const overallStartTime = performance.now();
     try {
-        const shop_id = await getShopId();
+        logger.info('Starting Etsy order sync');
+        const shopId = await getShopId();
         const tokenData = JSON.parse(process.env.TOKEN_DATA);
-        
-        const requestOptions = {
-            method: 'GET',
-            headers: {
-                'x-api-key': process.env.ETSY_API_KEY,
-                Authorization: `Bearer ${tokenData.access_token}`
-            }
-        };
+        const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || '90', 10);
+        const minCreated = Math.floor((Date.now() - orderSyncDays * 24 * 60 * 60 * 1000) / 1000);
 
-        // Get recent orders (last 3 months)
-        const threeMonthsAgo = new Date();
-        threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-        
-        const response = await rateLimitedFetch(
-            `https://openapi.etsy.com/v3/application/shops/${shop_id}/receipts?min_created=${Math.floor(threeMonthsAgo.getTime() / 1000)}`,
-            requestOptions
-        );
-
-        if (!response.ok) {
-            throw new Error('Failed to fetch Etsy orders');
-        }
-
-        const orders = await response.json();
+        let offset = 0;
+        const limit = 100;
+        let allOrders = [];
         let newOrderCount = 0;
         let updatedOrderCount = 0;
-        const newSkus = new Set();
-        
-        // Track unique listing IDs that need product info
-        const listingIdsToFetch = new Set();
 
-        for (const receipt of orders.results) {
-            // Use order_id (required field in new schema) with receipt_id as the unique identifier
-            let order = await Order.findOne({ 
-                marketplace: 'etsy', 
-                receipt_id: receipt.receipt_id.toString() 
-            });
+        const headers = {
+            'x-api-key': process.env.ETSY_API_KEY,
+            'Authorization': `Bearer ${tokenData.access_token}`
+        };
+
+        const fetchLoopStartTime = performance.now();
+        while (true) {
+            const iterationStartTime = performance.now();
+            // Use imported API_BASE_URL
+            const url = `${API_BASE_URL}/application/shops/${shopId}/receipts?limit=${limit}&offset=${offset}&min_created=${minCreated}`;
+            logger.debug(`Fetching Etsy orders: ${url}`);
             
-            const isNew = !order;
-            
-            if (!order) {
-                order = new Order({
-                    order_id: `etsy-${receipt.receipt_id.toString()}`,
-                    marketplace: 'etsy',
-                    receipt_id: receipt.receipt_id.toString(),
-                    order_date: new Date(receipt.created_timestamp * 1000),
-                    buyer_name: `${receipt.buyer_first_name} ${receipt.buyer_last_name}`.trim(),
-                });
+            // Use etsyFetch instead of rateLimitedFetch
+            const response = await etsyFetch(url, { headers });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                logger.error('Failed to fetch Etsy orders', { status: response.status, error: errorText });
+                throw new Error(`Failed to fetch Etsy orders: ${response.statusText}`);
             }
 
-            // Update order data
-            if (receipt.transactions) {
-                order.items = receipt.transactions.map(transaction => {
-                    const sku = transaction.sku || `ETSY-${transaction.listing_id}`;
-                    
-                    // Check if this is a new SKU we haven't seen before
-                    if (sku) {
-                        newSkus.add({
-                            sku,
-                            listing_id: transaction.listing_id.toString(),
-                            title: transaction.title
+            const data = await response.json();
+            const orders = data.results || [];
+            allOrders.push(...orders);
+
+            const iterationEndTime = performance.now();
+            logger.debug(`[Perf] Etsy order fetch iteration took ${(iterationEndTime - iterationStartTime).toFixed(2)}ms`);
+            if (orders.length < limit) {
+                break;
+            }
+            offset += limit;
+        }
+        const fetchLoopEndTime = performance.now();
+        logger.info(`[Perf] Etsy order fetch loop took ${(fetchLoopEndTime - fetchLoopStartTime).toFixed(2)}ms`, { count: allOrders.length });
+
+        // Process orders
+        const processLoopStartTime = performance.now();
+        for (const etsyOrderData of allOrders) {
+            const orderProcessStartTime = performance.now();
+            const receiptIdStr = etsyOrderData.receipt_id?.toString();
+
+            // Basic check for receipt_id
+            if (!receiptIdStr) {
+                logger.warn('Skipping Etsy order due to missing receipt_id', { orderData: etsyOrderData });
+                continue;
+            }
+
+            try {
+                let order = await Order.findOne({ order_id: receiptIdStr, marketplace: 'etsy' });
+                let isNewOrder = false;
+                if (!order) {
+                    isNewOrder = true;
+
+                    // Validate created_timestamp before creating Date (Corrected field name)
+                    const timestamp = etsyOrderData.created_timestamp; // Corrected field name
+                    // Add the actual timestamp value to the log context
+                    if (typeof timestamp !== 'number' || timestamp <= 0) {
+                        logger.warn('Skipping new Etsy order due to invalid created_timestamp type or value', { // Corrected log message
+                            receipt_id: receiptIdStr, 
+                            timestamp_value: timestamp, // Include the value
+                            timestamp_type: typeof timestamp // Include the type
                         });
-                        
-                        // Add to list of listing IDs to fetch detailed info
-                        listingIdsToFetch.add(transaction.listing_id.toString());
+                        continue; // Skip this order
                     }
-                    
-                    return {
+
+                    const orderDate = new Date(timestamp * 1000);
+                    // Add the actual timestamp value to the log context
+                    if (isNaN(orderDate.getTime())) {
+                        logger.warn('Skipping new Etsy order due to invalid date conversion from created_timestamp', { // Corrected log message
+                            receipt_id: receiptIdStr, 
+                            timestamp_value: timestamp // Include the value
+                        });
+                        continue; // Skip this order
+                    }
+
+                    order = new Order({
+                        order_id: receiptIdStr,
                         marketplace: 'etsy',
-                        receipt_id: receipt.receipt_id.toString(),
-                        listing_id: transaction.listing_id.toString(),
-                        sku: sku,
-                        quantity: transaction.quantity,
-                        transaction_id: transaction.transaction_id.toString(),
-                        is_digital: transaction.is_digital || false
-                    };
+                        order_date: orderDate, // Use validated date
+                        receipt_id: receiptIdStr,
+                        buyer_name: etsyOrderData.name || 'N/A'
+                    });
+                    newOrderCount++;
+                }
+
+                // Update common fields and Etsy-specific data
+                order.etsy_order_data = etsyOrderData; // Store raw data
+                order.buyer_name = etsyOrderData.name || order.buyer_name || 'N/A'; // Update buyer name, keep existing if new one is missing
+                
+                // Update status using the method
+                order.updateFromEtsy(etsyOrderData);
+
+                // Update items (ensure transactions exist)
+                order.items = (etsyOrderData.transactions || []).map(tx => ({
+                    marketplace: 'etsy',
+                    sku: tx.sku || 'UNKNOWN', // Use SKU if available
+                    quantity: tx.quantity,
+                    is_digital: tx.is_digital,
+                    receipt_id: receiptIdStr,
+                    listing_id: tx.listing_id?.toString(),
+                    transaction_id: tx.transaction_id?.toString()
+                }));
+
+                await order.save();
+                
+                if (!isNewOrder) {
+                    updatedOrderCount++; 
+                }
+                
+            } catch (validationError) {
+                // Catch potential validation errors during save and log context
+                logger.error('Validation error processing Etsy order', { 
+                    receipt_id: receiptIdStr, 
+                    error: validationError.message, 
+                    stack: validationError.stack 
                 });
+                // Optionally continue to next order instead of stopping the whole sync
+                // continue; 
             }
+            
+            const orderProcessEndTime = performance.now();
+            logger.debug(`[Perf] Etsy order processing took ${(orderProcessEndTime - orderProcessStartTime).toFixed(2)}ms`, { receipt_id: receiptIdStr });
+        }
+        const processLoopEndTime = performance.now();
+        logger.info(`[Perf] Etsy order processing loop took ${(processLoopEndTime - processLoopStartTime).toFixed(2)}ms`, { new: newOrderCount, updated: updatedOrderCount });
 
-            order.updateFromEtsy(receipt);
-            order.etsy_order_data = receipt;
-            await order.save();
-
-            if (isNew) newOrderCount++;
-            else updatedOrderCount++;
+        logger.info(`Successfully synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders`);
+        req.flash('success', `Synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders.`);
+        // Check if res is available before redirecting
+        if (res) {
+            res.redirect('/sync');
         }
 
-        // Process new SKUs that are not already in the product database
-        const existingSkus = await Product.distinct('sku', { 
-            sku: { $in: Array.from(newSkus).map(item => item.sku) }
-        });
-        
-        const skusToAdd = Array.from(newSkus).filter(item => !existingSkus.includes(item.sku));
-        
-        // Create new product entries for new SKUs
-        if (skusToAdd.length > 0) {
-            logger.info(`Found ${skusToAdd.length} new SKUs in orders to add to product database`);
-            
-            // Fetch detailed listing information for new products
-            const listingDetails = new Map();
-            
-            // Process listing IDs in batches of 10 (Etsy limit)
-            const batchSize = 10;
-            const listingIdArray = Array.from(listingIdsToFetch);
-            
-            for (let i = 0; i < listingIdArray.length; i += batchSize) {
-                const batch = listingIdArray.slice(i, i + batchSize);
-                const listingIds = batch.join(',');
-                
-                try {
-                    const listingsResponse = await rateLimitedFetch(
-                        `https://openapi.etsy.com/v3/application/listings/batch?listing_ids=${listingIds}&includes=Images,Shipping,Shop,User,Translations,Inventory,Videos`,
-                        requestOptions
-                    );
-                    
-                    if (listingsResponse.ok) {
-                        const data = await listingsResponse.json();
-                        for (const listing of data.results) {
-                            listingDetails.set(listing.listing_id.toString(), listing);
-                        }
-                    } else {
-                        logger.warn(`Failed to fetch details for some listings: ${listingIds}`);
-                    }
-                } catch (error) {
-                    logger.error(`Error fetching listing details: ${error.message}`);
-                }
-                
-                // Add delay between batches to respect rate limits
-                if (i + batchSize < listingIdArray.length) {
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                }
-            }
-            
-            // Create new product entries
-            const productUpdates = skusToAdd.map(item => {
-                const listing = listingDetails.get(item.listing_id);
-                
-                return {
-                    updateOne: {
-                        filter: { sku: item.sku },
-                        update: {
-                            $setOnInsert: {
-                                sku: item.sku,
-                                name: item.title || `Unknown Product (${item.sku})`,
-                                quantity_on_hand: 0,
-                                quantity_committed: 0
-                            },
-                            $set: {
-                                raw_etsy_data: listing ? {
-                                    listing: listing,
-                                    inventory: listing.inventory || null,
-                                    last_raw_sync: new Date()
-                                } : null,
-                                etsy_data: listing ? {
-                                    listing_id: item.listing_id,
-                                    title: listing.title,
-                                    description: listing.description,
-                                    status: listing.state,
-                                    tags: listing.tags || [],
-                                    shipping_profile_id: listing.shipping_profile_id?.toString(),
-                                    price: listing.price?.amount / listing.price?.divisor || 0,
-                                    images: listing.images?.map(img => ({
-                                        url: img.url_fullxfull,
-                                        alt: img.alt_text || ''
-                                    })) || [],
-                                    last_synced: new Date()
-                                } : {
-                                    listing_id: item.listing_id,
-                                    title: item.title || `Unknown Product (${item.sku})`,
-                                    last_synced: new Date()
-                                }
-                            }
-                        },
-                        upsert: true
-                    }
-                };
-            });
-            
-            if (productUpdates.length > 0) {
-                const result = await Product.bulkWrite(productUpdates);
-                logger.info(`Added ${result.upsertedCount} new products from order SKUs`);
-                req.flash('success', `Added ${result.upsertedCount} new products from order SKUs`);
-            }
-        }
-
-        const successMessage = `Successfully synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders`;
-        logger.info(successMessage);
-        req.flash('success', successMessage);
-        res.redirect('/orders?marketplace=etsy');
     } catch (error) {
-        logger.error('Error syncing Etsy orders:', { error: error.message });
-        req.flash('error', `Error syncing orders from Etsy: ${error.message}`);
-        res.redirect('/orders');
+        logger.error('Error syncing Etsy orders:', { error: error.message, stack: error.stack }); // Log stack trace
+        // Check if req and res are available before flashing/redirecting
+        if (req && res) {
+            req.flash('error', 'Error syncing Etsy orders');
+            res.redirect('/sync');
+        }
+    } finally {
+        const overallEndTime = performance.now();
+        logger.info(`[Perf] Overall syncEtsyOrders took ${(overallEndTime - overallStartTime).toFixed(2)}ms`);
     }
 }
 
 // Sync Shopify orders
 async function syncShopifyOrders(req, res) {
+    const overallStartTime = performance.now();
     try {
         // Check for the correct environment variables
         if (!process.env.SHOPIFY_ACCESS_TOKEN || !process.env.SHOPIFY_SHOP_NAME) {
@@ -1348,6 +1294,7 @@ async function syncShopifyOrders(req, res) {
             const shopifyOrders = await shopifyHelpers.getAllResources(shopify.order, params);
             
             // Process each Shopify order
+            const processLoopStartTime = performance.now();
             for (const shopifyOrder of shopifyOrders) {
                 // Use order_id with Shopify order ID as the unique identifier
                 let order = await Order.findOne({ 
@@ -1404,7 +1351,9 @@ async function syncShopifyOrders(req, res) {
                 if (isNew) newOrderCount++;
                 else updatedOrderCount++;
             }
-            
+            const processLoopEndTime = performance.now();
+            logger.info(`[Perf] Shopify order processing loop took ${(processLoopEndTime - processLoopStartTime).toFixed(2)}ms`, { new: newOrderCount, updated: updatedOrderCount });
+
             // Process new SKUs that are not already in the product database
             const existingSkus = await Product.distinct('sku', { 
                 sku: { $in: Array.from(newSkus).map(item => item.sku) }
@@ -1511,6 +1460,9 @@ async function syncShopifyOrders(req, res) {
         logger.error('Error in Shopify order sync:', { error: error.message });
         req.flash('error', `Error syncing orders from Shopify: ${error.message}`);
         res.redirect('/orders');
+    } finally {
+        const overallEndTime = performance.now();
+        logger.info(`[Perf] Overall syncShopifyOrders took ${(overallEndTime - overallStartTime).toFixed(2)}ms`);
     }
 }
 

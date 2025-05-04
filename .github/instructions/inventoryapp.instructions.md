@@ -76,6 +76,6 @@ This document provides coding standards, domain knowledge, and preferences for A
 - Prefer functional components/modules where appropriate.
 - Keep functions small and focused.
 - Prioritize clear, readable code over overly clever solutions.
-- Before suggesting changes, check for existing patterns in the codebase.
+- When designing your solution, check for existing patterns in the codebase.
 - If unsure about a specific implementation, ask for clarification or provide options with pros/cons.
-- Before making edits, review your intended change for correctness and consistency with the existing codebase. Consider what bugs or issues might arise from the change.
+- When debugging errors, always refer back to the last known functional code for comparison.

@@ -1,10 +1,16 @@
 const express = require('express');
 const hbs = require("hbs");
 const dotenv = require("@dotenvx/dotenvx");
-const mongoose = require('mongoose');
 const path = require('path');
-const { authExpired } = require('./utils/etsy-helpers');
 dotenv.config();
+
+// Import logger
+const { logger } = require('./utils/logger');
+
+// Log server startup
+logger.info('==================== SERVER STARTING ====================');
+logger.info(`Node environment: ${process.env.NODE_ENV || 'development'}`);
+logger.info(`Log level: ${logger.level}`);
 
 // Import models
 const Product = require('./models/product');
@@ -196,6 +202,7 @@ module.exports = app;
 if (require.main === module) {
     const port = process.env.PORT || 3003;
     app.listen(port, () => {
-        console.log(`Server is running on http://localhost:${port}`);
+        logger.info(`Server listening on port ${port}`);
+        logger.info('==================== SERVER READY =====================');
     });
 }

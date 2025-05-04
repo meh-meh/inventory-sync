@@ -1,20 +1,30 @@
 const fetch = require('node-fetch');
 const dotenv = require('@dotenvx/dotenvx');
-const { logger, trackRateLimit } = require('./logger');
+// Correctly import only logger
+const { logger } = require('./logger');
 const authService = require('./auth-service');
+const { sleep } = require('./shopify-helpers'); // Import sleep
 
 // Configuration
 const API_BASE_URL = 'https://openapi.etsy.com/v3';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
+// Define trackRateLimit function *before* etsyFetch
+let lastRequestTime = 0;
+const rateLimitDelay = 100; // 100ms between requests (10 req/sec)
+
 /**
- * Sleep/delay utility function
- * @param {Number} ms - Milliseconds to sleep
+ * Ensures requests do not exceed the Etsy rate limit (10 req/sec).
  * @returns {Promise<void>}
  */
-async function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+async function trackRateLimit() {
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastRequestTime;
+    if (timeSinceLastRequest < rateLimitDelay) {
+        await sleep(rateLimitDelay - timeSinceLastRequest); // Use imported sleep
+    }
+    lastRequestTime = Date.now();
 }
 
 /**
@@ -25,8 +35,8 @@ async function sleep(ms) {
  * @returns {Promise<Response>} - Fetch response
  */
 async function etsyFetch(url, options, retries = MAX_RETRIES) {
-    await trackRateLimit();
-    
+    await trackRateLimit(); // Call the local function defined above
+
     try {
         const response = await fetch(url, options);
         
@@ -66,7 +76,7 @@ async function etsyFetch(url, options, retries = MAX_RETRIES) {
             let errorData = null;
             try {
                 errorData = await response.json();
-            } catch (e) {
+            } catch {
                 // If not JSON, get text
                 const errorText = await response.text();
                 errorData = { error: errorText };
@@ -171,12 +181,10 @@ async function getShippingProfiles() {
     }
 }
 
-// Export using the auth service for checking if token is expired
-const authExpired = authService.isTokenExpired;
-
+// Export necessary functions
 module.exports = {
     getShopId,
-    authExpired,
+    authExpired: authService.isTokenExpired, // Keep existing alias
     etsyFetch,
     API_BASE_URL,
     getShippingProfiles

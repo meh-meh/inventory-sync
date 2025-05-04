@@ -4,10 +4,7 @@ const { logger } = require('../utils/logger');
 const DB_URI = process.env.MONGODB_URI || 'mongodb://localhost/etsy_inventory';
 
 // Connect to MongoDB
-mongoose.connect(DB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-})
+mongoose.connect(DB_URI)
 .then(() => {
     logger.info('Connected to MongoDB');
 })
