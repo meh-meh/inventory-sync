@@ -119,7 +119,6 @@ async function getShopInfo() {
  */
 async function getAllResources(method, params = {}) {
     try {
-        const client = getShopifyClient();
         // Extract the resource name for logging
         let resourceName = 'resources';
         if (typeof method === 'object' && method.name) {

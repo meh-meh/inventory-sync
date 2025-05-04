@@ -9,7 +9,7 @@
 
 const mongoose = require('mongoose');
 const Order = require('./models/order');
-const dbConnection = require('./config/database');
+require('./config/database');
 const { logger } = require('./utils/logger');
 
 async function fixOrderMarketplaceFields() {

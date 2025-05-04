@@ -21,7 +21,7 @@ A Node.js application for managing Etsy inventory and orders across multiple mar
 
 ## Project Structure
 
-```
+```plaintext
 ├── models/             # Database models
 │   ├── order.js        # Order model definition
 │   └── product.js      # Product model definition
@@ -170,7 +170,7 @@ If images aren't displaying properly, check the following:
 
 #### Data Depth Issues
 
-If you see "[Max Depth Reached]" in your data, the JSON helper may be truncating nested objects.
+If you see ``[Max Depth Reached]`` in your data, the JSON helper may be truncating nested objects.
 Adjust the maxDepth parameter in the JSON helper or add special handling for specific fields.
 
 ## MongoDB Management

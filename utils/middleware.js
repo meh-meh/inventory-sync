@@ -1,4 +1,3 @@
-const dotenv = require("@dotenvx/dotenvx");
 const authService = require('./auth-service');
 const { logger } = require('./logger');
 
