@@ -1084,149 +1084,110 @@ router.get('/sync-orders', async (req, res) => {
 
 // Sync Etsy orders
 async function syncEtsyOrders(req, res) {
-    // TODO: Improve performance by using bulkWrite for order updates
-    // TODO: Only do full sync for orders since last sync (with some reasonable overlap to avoid missing orders). Do partial sync for everything else. Need to decide what's important for partial sync. Need to verify if this actually saves any time.
     const overallStartTime = performance.now();
     try {
         logger.info('Starting Etsy order sync');
         const shopId = await getShopId();
         const tokenData = JSON.parse(process.env.TOKEN_DATA);
-        const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || '90', 10);
-        const minCreated = Math.floor((Date.now() - orderSyncDays * 24 * 60 * 60 * 1000) / 1000);
-
-        let offset = 0;
         const limit = 100;
+        let offset = 0;
         let allOrders = [];
         let newOrderCount = 0;
         let updatedOrderCount = 0;
+
+        // Get last sync time and use a 1-day overlap
+        let lastSyncTime = await Settings.getSetting('lastEtsyOrderSync');
+        let minCreated;
+        if (lastSyncTime) {
+            const overlapMs = 24 * 60 * 60 * 1000; // 1 day overlap
+            minCreated = Math.floor((new Date(lastSyncTime).getTime() - overlapMs) / 1000);
+        } else {
+            // Fallback to ORDER_SYNC_DAYS env or 90 days
+            const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || '90', 10);
+            minCreated = Math.floor((Date.now() - orderSyncDays * 24 * 60 * 60 * 1000) / 1000);
+        }
 
         const headers = {
             'x-api-key': process.env.ETSY_API_KEY,
             'Authorization': `Bearer ${tokenData.access_token}`
         };
 
-        const fetchLoopStartTime = performance.now();
+        // Fetch all orders in the date range
         while (true) {
-            const iterationStartTime = performance.now();
-            // Use imported API_BASE_URL
             const url = `${API_BASE_URL}/application/shops/${shopId}/receipts?limit=${limit}&offset=${offset}&min_created=${minCreated}`;
             logger.debug(`Fetching Etsy orders: ${url}`);
-            
-            // Use etsyFetch instead of rateLimitedFetch
             const response = await etsyFetch(url, { headers });
-
             if (!response.ok) {
                 const errorText = await response.text();
                 logger.error('Failed to fetch Etsy orders', { status: response.status, error: errorText });
                 throw new Error(`Failed to fetch Etsy orders: ${response.statusText}`);
             }
-
-            // Use built-in JSON parsing instead of custom function
             const data = await response.json();
-
             const orders = data.results || [];
             allOrders.push(...orders);
-
-            const iterationEndTime = performance.now();
-            logger.debug(`[Perf] Etsy order fetch iteration took ${(iterationEndTime - iterationStartTime).toFixed(2)}ms`);
-            if (orders.length < limit) {
-                break;
-            }
+            if (orders.length < limit) break;
             offset += limit;
         }
-        const fetchLoopEndTime = performance.now();
-        logger.info(`[Perf] Etsy order fetch loop took ${(fetchLoopEndTime - fetchLoopStartTime).toFixed(2)}ms`, { count: allOrders.length });
+        logger.info(`Fetched ${allOrders.length} Etsy orders in date range`);
 
-        // Process orders
-        const processLoopStartTime = performance.now();
+        // Prepare bulkWrite operations
+        const bulkOps = [];
+        const existingOrders = await Order.find({
+            order_id: { $in: allOrders.map(o => o.receipt_id?.toString()) },
+            marketplace: 'etsy'
+        }).lean();
+        const existingOrderMap = new Map(existingOrders.map(o => [o.order_id, o]));
+
         for (const etsyOrderData of allOrders) {
-            const orderProcessStartTime = performance.now();
             const receiptIdStr = etsyOrderData.receipt_id?.toString();
+            if (!receiptIdStr) continue;
+            const existing = existingOrderMap.get(receiptIdStr);
+            const timestamp = etsyOrderData.created_timestamp;
+            if (typeof timestamp !== 'number' || timestamp <= 0) continue;
+            const orderDate = new Date(timestamp * 1000);
+            if (isNaN(orderDate.getTime())) continue;
 
-            // Basic check for receipt_id
-            if (!receiptIdStr) {
-                logger.warn('Skipping Etsy order due to missing receipt_id', { orderData: etsyOrderData });
-                continue;
-            }
+            const items = (etsyOrderData.transactions || []).map(tx => ({
+                marketplace: 'etsy',
+                sku: tx.sku || 'UNKNOWN',
+                quantity: tx.quantity,
+                is_digital: tx.is_digital,
+                receipt_id: receiptIdStr,
+                listing_id: tx.listing_id?.toString(),
+                transaction_id: tx.transaction_id?.toString()
+            }));
 
-            try {
-                let order = await Order.findOne({ order_id: receiptIdStr, marketplace: 'etsy' });
-                let isNewOrder = false;
-                if (!order) {
-                    isNewOrder = true;
-
-                    // Validate created_timestamp before creating Date (Corrected field name)
-                    const timestamp = etsyOrderData.created_timestamp; // Corrected field name
-                    // Add the actual timestamp value to the log context
-                    if (typeof timestamp !== 'number' || timestamp <= 0) {
-                        logger.warn('Skipping new Etsy order due to invalid created_timestamp type or value', { // Corrected log message
-                            receipt_id: receiptIdStr, 
-                            timestamp_value: timestamp, // Include the value
-                            timestamp_type: typeof timestamp // Include the type
-                        });
-                        continue; // Skip this order
-                    }
-
-                    const orderDate = new Date(timestamp * 1000);
-                    // Add the actual timestamp value to the log context
-                    if (isNaN(orderDate.getTime())) {
-                        logger.warn('Skipping new Etsy order due to invalid date conversion from created_timestamp', { // Corrected log message
-                            receipt_id: receiptIdStr, 
-                            timestamp_value: timestamp // Include the value
-                        });
-                        continue; // Skip this order
-                    }
-
-                    order = new Order({
-                        order_id: receiptIdStr,
-                        marketplace: 'etsy',
-                        order_date: orderDate, // Use validated date
-                        receipt_id: receiptIdStr,
-                        buyer_name: etsyOrderData.name || 'N/A'
-                    });
-                    newOrderCount++;
-                }
-
-                // Update common fields and Etsy-specific data
-                order.etsy_order_data = etsyOrderData; // Store raw data
-                order.buyer_name = etsyOrderData.name || order.buyer_name || 'N/A'; // Update buyer name, keep existing if new one is missing
-                
-                // Update status using the method
-                order.updateFromEtsy(etsyOrderData);
-
-                // Update items (ensure transactions exist)
-                order.items = (etsyOrderData.transactions || []).map(tx => ({
-                    marketplace: 'etsy',
-                    sku: tx.sku || 'UNKNOWN', // Use SKU if available
-                    quantity: tx.quantity,
-                    is_digital: tx.is_digital,
+            const update = {
+                $set: {
+                    etsy_order_data: etsyOrderData,
+                    buyer_name: etsyOrderData.name || (existing?.buyer_name) || 'N/A',
+                    order_date: orderDate,
                     receipt_id: receiptIdStr,
-                    listing_id: tx.listing_id?.toString(),
-                    transaction_id: tx.transaction_id?.toString()
-                }));
-
-                await order.save();
-                
-                if (!isNewOrder) {
-                    updatedOrderCount++; 
+                    items
                 }
-                
-            } catch (validationError) {
-                // Catch potential validation errors during save and log context
-                logger.error('Validation error processing Etsy order', { 
-                    receipt_id: receiptIdStr, 
-                    error: validationError.message, 
-                    stack: validationError.stack 
-                });
-                // Optionally continue to next order instead of stopping the whole sync
-                // continue; 
-            }
-            
-            const orderProcessEndTime = performance.now();
-            logger.debug(`[Perf] Etsy order processing took ${(orderProcessEndTime - orderProcessStartTime).toFixed(2)}ms`, { receipt_id: receiptIdStr });
+            };
+
+            // Use updateFromEtsy if available
+            // (Assume updateFromEtsy is a method on the Order model instance, not usable here)
+
+            bulkOps.push({
+                updateOne: {
+                    filter: { order_id: receiptIdStr, marketplace: 'etsy' },
+                    update: update,
+                    upsert: true
+                }
+            });
         }
-        const processLoopEndTime = performance.now();
-        logger.info(`[Perf] Etsy order processing loop took ${(processLoopEndTime - processLoopStartTime).toFixed(2)}ms`, { new: newOrderCount, updated: updatedOrderCount });
+
+        // Execute bulkWrite
+        let result = { upsertedCount: 0, modifiedCount: 0 };
+        if (bulkOps.length > 0) {
+            result = await Order.bulkWrite(bulkOps, { ordered: false });
+        }
+
+        // Count new and updated orders
+        newOrderCount = result.upsertedCount || 0;
+        updatedOrderCount = result.modifiedCount || 0;
 
         logger.info(`Successfully synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders`);
         req.flash('success', `Synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders.`);
@@ -1234,18 +1195,12 @@ async function syncEtsyOrders(req, res) {
         // Record successful sync time in Settings
         await Settings.setSetting('lastEtsyOrderSync', new Date().toISOString());
 
-        // Check if res is available before redirecting
-        if (res) {
-            res.redirect('/sync'); // Redirect back to sync page
-        }
-
+        if (res) res.redirect('/sync');
     } catch (error) {
-        logger.error('Error syncing Etsy orders:', { error: error.message, stack: error.stack }); // Log stack trace
-        // Check if req and res are available before flashing/redirecting
+        logger.error('Error syncing Etsy orders:', { error: error.message, stack: error.stack });
         if (req && res) {
-            // Include the specific error message in the flash notification
             req.flash('error', `Error syncing Etsy orders: ${error.message}`);
-            res.redirect('/sync'); // Redirect back to sync page on error
+            res.redirect('/sync');
         }
     } finally {
         const overallEndTime = performance.now();

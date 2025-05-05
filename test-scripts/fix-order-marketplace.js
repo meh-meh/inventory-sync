@@ -8,9 +8,9 @@
  */
 
 const mongoose = require('mongoose');
-const Order = require('./models/order');
-require('./config/database');
-const { logger } = require('./utils/logger');
+const Order = require('../models/order');
+require('../config/database');
+const { logger } = require('../utils/logger');
 
 async function fixOrderMarketplaceFields() {
     logger.info('Starting order marketplace field fix script');

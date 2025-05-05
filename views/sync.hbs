@@ -319,16 +319,14 @@
             const shopifyOrdersLink = document.querySelector('a[href="/sync/sync-orders?marketplace=shopify"]');
 
             if (etsyProductsBtn) {
-                console.log('Found Etsy products button, attaching listener');
+                // console.log('Found Etsy products button, attaching listener');
                 etsyProductsBtn.addEventListener('click', () => startSync('Etsy', 'Products'));
             } else {
                 console.warn('Etsy products button (#syncEtsyProductsBtn) not found');
             }
 
             if (shopifyProductsBtn) {
-                console.log('Found Shopify products button, attaching listener');
-                // NOTE: This assumes /sync/sync-shopify is updated to run in the background like Etsy
-                // If it still runs synchronously and redirects, this JS needs adjustment.
+                // console.log('Found Shopify products button, attaching listener');
                 shopifyProductsBtn.addEventListener('click', () => startSync('Shopify', 'Products'));
             } else {
                 console.warn('Shopify products button (#syncShopifyProductsBtn) not found');
