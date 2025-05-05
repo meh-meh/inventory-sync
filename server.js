@@ -106,18 +106,22 @@ app.get('/index', (req, res) => {
     res.redirect('/');
 });
 
+const { etsyRequest } = require('./utils/etsy-request-pool');
+
 app.get('/ping', async (req, res) => {
     try {
-        const response = await fetch(
-            'https://api.etsy.com/v3/application/openapi-ping',
-            {
-                method: 'GET',
-                headers: {
-                    'x-api-key': process.env.ETSY_API_KEY,
+        const response = await etsyRequest(
+            () => fetch(
+                'https://api.etsy.com/v3/application/openapi-ping',
+                {
+                    method: 'GET',
+                    headers: {
+                        'x-api-key': process.env.ETSY_API_KEY,
+                    }
                 }
-            }
+            ),
+            { endpoint: '/openapi-ping', method: 'GET' }
         );
-
         if (response.ok) {
             const data = await response.json();
             res.send(data);
@@ -212,7 +216,7 @@ async function fetchDashboardData() {
 
 // Error Handling Middleware
 // Add 'next' to the signature for Express to recognize it as an error handler
-app.use((err, req, res, next) => { 
+app.use((err, req, res) => { 
     logger.error('Unhandled error:', { 
         message: err.message, 
         stack: err.stack, 

@@ -4,6 +4,7 @@ const dotenv = require('@dotenvx/dotenvx');
 const { logger } = require('./logger');
 const authService = require('./auth-service');
 const { sleep } = require('./shopify-helpers'); // Import sleep
+const { etsyRequest } = require('./etsy-request-pool'); // Import etsyRequest
 
 // Configuration
 const API_BASE_URL = 'https://openapi.etsy.com/v3';
@@ -135,12 +136,15 @@ async function getShopId() {
             throw new Error('No access token available');
         }
         
-        const response = await fetch(`${API_BASE_URL}/application/users/me`, {
-            headers: {
-                'x-api-key': process.env.ETSY_API_KEY,
-                Authorization: `Bearer ${accessToken}`
-            }
-        });
+        const response = await etsyRequest(
+            () => fetch(`${API_BASE_URL}/application/users/me`, {
+                headers: {
+                    'x-api-key': process.env.ETSY_API_KEY,
+                    Authorization: `Bearer ${accessToken}`
+                }
+            }),
+            { endpoint: '/users/me', method: 'GET' }
+        );
 
         if (!response.ok) {
             logger.error('Failed to fetch shop ID', { 
@@ -180,12 +184,15 @@ async function getShippingProfiles() {
         
         const tokenData = JSON.parse(process.env.TOKEN_DATA);
         
-        const response = await fetch(`https://openapi.etsy.com/v3/application/shops/${shopId}/shipping-profiles`, {
-            headers: {
-                'x-api-key': process.env.ETSY_API_KEY,
-                'Authorization': `Bearer ${tokenData.access_token}`
-            }
-        });
+        const response = await etsyRequest(
+            () => fetch(`https://openapi.etsy.com/v3/application/shops/${shopId}/shipping-profiles`, {
+                headers: {
+                    'x-api-key': process.env.ETSY_API_KEY,
+                    'Authorization': `Bearer ${tokenData.access_token}`
+                }
+            }),
+            { endpoint: '/shops/:shop_id/shipping-profiles', method: 'GET', shop_id: shopId }
+        );
         
         if (!response.ok) {
             throw new Error(`Failed to fetch shipping profiles: ${response.statusText}`);
@@ -194,7 +201,7 @@ async function getShippingProfiles() {
         const data = await response.json();
         return data.results;
     } catch (error) {
-        console.error('Error fetching shipping profiles:', error);
+        logger.error('Error fetching shipping profiles:', { error: error.message });
         throw error;
     }
 }

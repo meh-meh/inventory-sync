@@ -3,6 +3,7 @@ const router = express.Router();
 const Order = require('../models/order');
 const getShopId = require('../utils/etsy-helpers').getShopId;
 const fetch = require('node-fetch');
+const { etsyRequest } = require('../utils/etsy-request-pool');
 
 // Orders Management Routes
 router.get('/:id', async (req, res) => {
@@ -174,9 +175,12 @@ router.post('/:id/sync-status', async (req, res) => {
             }
         };
 
-        const response = await fetch(
-            `https://openapi.etsy.com/v3/application/shops/${shop_id}/receipts/${order.receipt_id}`,
-            requestOptions
+        const response = await etsyRequest(
+            () => fetch(
+                `https://openapi.etsy.com/v3/application/shops/${shop_id}/receipts/${order.receipt_id}`,
+                requestOptions
+            ),
+            { endpoint: '/receipts/:id', method: 'GET', receipt_id: order.receipt_id }
         );
 
         if (response.ok) {

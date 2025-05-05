@@ -8,6 +8,7 @@ const multer = require('multer');
 const upload = multer();
 const shopifyHelpers = require('../utils/shopify-helpers'); // Import shopify-helpers
 const { logger } = require('../utils/logger'); // Import logger
+const { etsyRequest } = require('../utils/etsy-request-pool'); // Import etsyRequest
 
 // Helper function to safely parse numbers from env strings
 function safeParseInt(value, defaultValue) {
@@ -43,12 +44,17 @@ router.get('/', async (req, res) => {
                 
                 // Try to get the shop name
                 const tokenData = JSON.parse(process.env.TOKEN_DATA);
-                const response = await fetch(`https://openapi.etsy.com/v3/application/shops/${etsyShopId}`, {
-                    headers: {
-                        'x-api-key': process.env.ETSY_API_KEY,
-                        Authorization: `Bearer ${tokenData.access_token}`
-                    }
-                });
+                const response = await etsyRequest(
+                    () => fetch(`https://openapi.etsy.com/v3/application/shops/${etsyShopId}`,
+                        {
+                            headers: {
+                                'x-api-key': process.env.ETSY_API_KEY,
+                                Authorization: `Bearer ${tokenData.access_token}`
+                            }
+                        }
+                    ),
+                    { endpoint: '/shops/:shop_id', method: 'GET', shop_id: etsyShopId }
+                );
                 
                 if (response.ok) {
                     const shopData = await response.json();

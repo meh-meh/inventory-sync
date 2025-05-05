@@ -17,6 +17,7 @@ const readline = require('readline');
 const { performance } = require('perf_hooks');
 const Shopify = require('shopify-api-node'); // Add this import for direct Shopify client
 const fsSync = require('fs'); // For createWriteStream
+const { etsyRequest } = require('../utils/etsy-request-pool');
 
 // In-memory store for sync status
 const syncStatus = new Map();
@@ -192,7 +193,10 @@ async function fetchAllListings(shop_id, syncId) {
             redirect: 'follow'
         };
         const fetchUrl = `https://openapi.etsy.com/v3/application/shops/${shop_id}/listings?${urlencoded.toString()}`;
-        const firstResp = await etsyFetch(fetchUrl, requestOptions);
+        const firstResp = await etsyRequest(
+            () => etsyFetch(fetchUrl, requestOptions),
+            { endpoint: '/listings', method: 'GET', state, offset: 0, syncId }
+        );
         if (!firstResp.ok) {
             const errorText = await firstResp.text();
             logger.error('Error fetching listings:', {
@@ -227,7 +231,10 @@ async function fetchAllListings(shop_id, syncId) {
                     urlencoded.set('state', state);
                     const pageUrl = `https://openapi.etsy.com/v3/application/shops/${shop_id}/listings?${urlencoded.toString()}`;
                     try {
-                        const resp = await etsyFetch(pageUrl, requestOptions);
+                        const resp = await etsyRequest(
+                            () => etsyFetch(pageUrl, requestOptions),
+                            { endpoint: '/listings', method: 'GET', state, offset, syncId }
+                        );
                         if (resp.status === 429) {
                             logger.warn('Received HTTP 429 (Too Many Requests) from Etsy API', { offset, state });
                             await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries)));
@@ -1113,7 +1120,10 @@ async function syncEtsyOrders(req, res) {
         const firstUrl = `${API_BASE_URL}/application/shops/${shopId}/receipts?limit=${limit}&offset=0&min_created=${minCreated}`;
         const reqStart = Date.now();
         logger.debug(`Fetching Etsy orders: ${firstUrl}`);
-        let response = await etsyFetch(firstUrl, { headers });
+        let response = await etsyRequest(
+            () => etsyFetch(firstUrl, { headers }),
+            { endpoint: '/receipts', method: 'GET', offset: 0, syncId: req.query.syncId }
+        );
         let reqDuration = Date.now() - reqStart;
         requestTimings.push(reqDuration);
         logger.info(`Fetched batch in ${reqDuration}ms (offset=0)`);
@@ -1154,7 +1164,10 @@ async function syncEtsyOrders(req, res) {
                     const reqStart = Date.now();
                     try {
                         logger.debug(`Fetching Etsy orders: ${url}`);
-                        let resp = await etsyFetch(url, { headers });
+                        let resp = await etsyRequest(
+                            () => etsyFetch(url, { headers }),
+                            { endpoint: '/receipts', method: 'GET', offset, syncId: req.query.syncId }
+                        );
                         let reqDuration = Date.now() - reqStart;
                         requestTimings.push(reqDuration);
                         logger.info(`Fetched batch in ${reqDuration}ms (offset=${offset})`);
