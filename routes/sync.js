@@ -1267,7 +1267,6 @@ async function syncShopifyOrders(req, res) {
         
         try { // Inner try for the main sync logic and API calls
             // Use shopify-helpers to get the client instead of creating a new one
-            const shopifyHelpers = require('../utils/shopify-helpers');
             const shopify = shopifyHelpers.getShopifyClient();
             
             // Get date range for Order Sync Period from settings
@@ -1288,13 +1287,28 @@ async function syncShopifyOrders(req, res) {
                 created_at_min: syncStartDate.toISOString(),
                 limit: 250 // Shopify default is 50, max is 250
             };
-            
-            // Use getAllResources helper with the correct method reference
-            const shopifyOrders = await shopifyHelpers.getAllResources(shopify.order, params);
-            
-            // Process each Shopify order
+
+            // Implement pagination to fetch all orders in the date range
+            let allShopifyOrders = [];
+            let hasMore = true;
+            let lastId = null;
+            while (hasMore) {
+                const fetchParams = { ...params };
+                if (lastId) fetchParams.since_id = lastId;
+                const batch = await shopify.order.list(fetchParams);
+                if (batch && batch.length > 0) {
+                    allShopifyOrders.push(...batch);
+                    lastId = batch[batch.length - 1].id;
+                    hasMore = batch.length === params.limit;
+                } else {
+                    hasMore = false;
+                }
+            }
+            logger.info(`Fetched ${allShopifyOrders.length} Shopify orders in date range`, { count: allShopifyOrders.length });
+            // Use allShopifyOrders instead of shopifyOrders below
+            // ...existing code...
             const processLoopStartTime = performance.now();
-            for (const shopifyOrder of shopifyOrders) {
+            for (const shopifyOrder of allShopifyOrders) {
                 // Use order_id with Shopify order ID as the unique identifier
                 let order = await Order.findOne({ 
                     marketplace: 'shopify', 
