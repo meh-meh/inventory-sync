@@ -134,6 +134,7 @@ async function fetchAllListings(shop_id, syncId) {
         sold_out: 0
     };
     const allListings = [];
+    const CONCURRENCY = 5;
 
     // Update status if syncId is provided
     const updateStatus = (progress, currentPhase = '') => {
@@ -154,7 +155,6 @@ async function fetchAllListings(shop_id, syncId) {
     };
 
     // Fetch active listings (includes draft and sold out)
-    let offset = 0;
     const limit = 100;
     const tokenData = JSON.parse(process.env.TOKEN_DATA);
     
@@ -175,102 +175,98 @@ async function fetchAllListings(shop_id, syncId) {
     headers.append("x-api-key", process.env.ETSY_API_KEY);
     headers.append("Authorization", `Bearer ${tokenData.access_token}`);
 
-    let urlencoded = new URLSearchParams();
-    urlencoded.append("state", "active");
-    urlencoded.append("limit", limit);
-    urlencoded.append("offset", offset);
-    // Request ALL available data by including all available fields
-    urlencoded.append("includes", "Shipping,Images,Shop,User,Translations,Inventory,Videos");
-
-    let i = 0;
     logger.info('Fetching all listings with complete data...');
     updateStatus(10); // Initial status update
     
-    // Define fetchLoopStartTime before the loop
-    const fetchLoopStartTime = performance.now();
-    while (true) {
-        const loopIterationStartTime = performance.now();
-        try {
-            logger.debug(`Fetching ${states[i]} listings, offset ${offset}...`);
-            
-            const state = states[i];
-            urlencoded.set('offset', offset);
-            urlencoded.set('state', state);
-            
-            let requestOptions = {
-                method: 'GET',
-                headers: headers,
-                redirect: 'follow'
-            };
-
-            // Define the URL string before using it
-            const fetchUrl = `https://openapi.etsy.com/v3/application/shops/${shop_id}/listings?${urlencoded.toString()}`;
-
-            // Use etsyFetch instead of the undefined rateLimitedFetch
-            const response = await etsyFetch(
-                fetchUrl, // Use the defined URL string
-                requestOptions
-            );
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.error('Error fetching listings:', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    details: errorText
-                });
-                throw new Error(`Failed to fetch listings: ${response.status} ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            const listings = data.results || [];
-            
-            // Filter listings by shipping profile if filter is enabled
-            const filteredListings = hasShippingProfileFilter ? 
-                listings.filter(listing => 
-                    selectedShippingProfiles.includes(listing.shipping_profile_id?.toString())
-                ) : 
-                listings;
-            
-            if (hasShippingProfileFilter) {
-                logger.debug(`Filtered ${listings.length - filteredListings.length} listings by shipping profile`);
-            }
-            
-            listingCounts[state] = listingCounts[state] + filteredListings.length; 
-            allListings.push(...filteredListings);
-
-            offset = offset + limit;
-
-            // Update progress based on how many listing states we've completed
-            const progressValue = 10 + Math.round((i / states.length) * 70) + 
-                (listings.length < limit ? 3 : 0); // Extra progress when completing a state
-            updateStatus(progressValue);
-
-            // Once we get an empty response, we can stop fetching
-            if (listings.length < limit) {
-                logger.debug(`No more listings for state: ${states[i]}`);
-                i++;
-                if (i >= states.length) {
-                    break; // All states have been processed
-                }
-                
-                // Then change to the next state
-                offset = 0; // Reset offset for the next state
-            }
-        } catch (error) {
-            logger.error(`Error fetching ${states[i]} listings at offset ${offset}:`, {
-                error: error.message,
-                state: states[i],
-                offset
+    // Parallelize per state
+    for (const state of states) {
+        let offset = 0;
+        let urlencoded = new URLSearchParams();
+        urlencoded.append('state', state);
+        urlencoded.append('limit', limit);
+        urlencoded.append('offset', offset);
+        urlencoded.append('includes', 'Shipping,Images,Shop,User,Translations,Inventory,Videos');
+        let requestOptions = {
+            method: 'GET',
+            headers: headers,
+            redirect: 'follow'
+        };
+        const fetchUrl = `https://openapi.etsy.com/v3/application/shops/${shop_id}/listings?${urlencoded.toString()}`;
+        const firstResp = await etsyFetch(fetchUrl, requestOptions);
+        if (!firstResp.ok) {
+            const errorText = await firstResp.text();
+            logger.error('Error fetching listings:', {
+                status: firstResp.status,
+                statusText: firstResp.statusText,
+                details: errorText
             });
-            throw error; // Re-throw to handle in the calling function
+            throw new Error(`Failed to fetch listings: ${firstResp.status} ${firstResp.statusText}`);
         }
-        const loopIterationEndTime = performance.now();
-        logger.debug(`[Perf] Etsy fetchAllListings iteration took ${(loopIterationEndTime - loopIterationStartTime).toFixed(2)}ms`, { syncId, state: states[i], offset });
+        const firstData = await firstResp.json();
+        const firstListings = firstData.results || [];
+        // Filter listings by shipping profile if filter is enabled
+        const filteredFirstListings = hasShippingProfileFilter ? 
+            firstListings.filter(listing => 
+                selectedShippingProfiles.includes(listing.shipping_profile_id?.toString())
+            ) : 
+            firstListings;
+        listingCounts[state] = filteredFirstListings.length;
+        allListings.push(...filteredFirstListings);
+        const totalCount = (typeof firstData.count === 'number' && isFinite(firstData.count) && firstData.count > 0) ? firstData.count : firstListings.length;
+        const totalPages = Math.ceil(totalCount / limit);
+        if (totalPages > 1) {
+            // Prepare offsets for remaining pages
+            const offsets = [];
+            for (let i = 1; i < totalPages; i++) {
+                offsets.push(i * limit);
+            }
+            async function fetchPage(offset) {
+                let retries = 0;
+                while (retries < 5) {
+                    urlencoded.set('offset', offset);
+                    urlencoded.set('state', state);
+                    const pageUrl = `https://openapi.etsy.com/v3/application/shops/${shop_id}/listings?${urlencoded.toString()}`;
+                    try {
+                        const resp = await etsyFetch(pageUrl, requestOptions);
+                        if (resp.status === 429) {
+                            logger.warn('Received HTTP 429 (Too Many Requests) from Etsy API', { offset, state });
+                            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries)));
+                            retries++;
+                            continue;
+                        }
+                        if (!resp.ok) {
+                            const errorText = await resp.text();
+                            logger.error('Error fetching listings:', { status: resp.status, error: errorText });
+                            throw new Error(`Failed to fetch listings: ${resp.status} ${resp.statusText}`);
+                        }
+                        const data = await resp.json();
+                        const listings = data.results || [];
+                        return hasShippingProfileFilter ? listings.filter(listing => selectedShippingProfiles.includes(listing.shipping_profile_id?.toString())) : listings;
+                    } catch (err) {
+                        logger.error('Error fetching listings page', { offset, state, error: err.message });
+                        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries)));
+                        retries++;
+                    }
+                }
+                logger.error('Failed to fetch listings after retries', { offset, state });
+                return [];
+            }
+            let idx = 0;
+            const results = [];
+            async function worker() {
+                while (idx < offsets.length) {
+                    const myIdx = idx++;
+                    const offset = offsets[myIdx];
+                    const res = await fetchPage(offset);
+                    listingCounts[state] += res.length;
+                    results.push(...res);
+                }
+            }
+            await Promise.all(Array(CONCURRENCY).fill(0).map(() => worker()));
+            allListings.push(...results);
+        }
+        updateStatus(10 + Math.round((states.indexOf(state) / states.length) * 70));
     }
-    const fetchLoopEndTime = performance.now();
-    logger.info(`[Perf] Etsy fetchAllListings loop took ${(fetchLoopEndTime - fetchLoopStartTime).toFixed(2)}ms`, { syncId });
-
     logger.info('Finished fetching all listings', { counts: listingCounts });
     updateStatus(30); // Final update after all listings are fetched
     const endTime = performance.now();
