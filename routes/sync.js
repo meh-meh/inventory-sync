@@ -22,26 +22,26 @@ const fsSync = require('fs'); // For createWriteStream
 const syncStatus = new Map();
 
 // --- Helper Function to Parse JSON with Logging ---
-async function parseJsonResponse(response, url) {
-    let responseText = ''; // Store raw text
-    try {
-        // Clone response to allow reading text even if json parsing fails
-        const clonedResponse = response.clone();
-        responseText = await clonedResponse.text();
-        // Attempt to parse original response
-        const jsonData = await response.json();
-        return jsonData;
-    } catch (error) {
-        logger.error(`Failed to parse JSON response from ${url}`, {
-            status: response.status,
-            statusText: response.statusText,
-            responseText: responseText.substring(0, 500), // Log first 500 chars
-            parseErrorMessage: error.message,
-        });
-        // Re-throw a more informative error
-        throw new Error(`Failed to parse JSON response from ${url}. Status: ${response.status}. Response snippet: ${responseText.substring(0, 100)}`);
-    }
-}
+// async function parseJsonResponse(response, url) {
+//     let responseText = ''; // Store raw text
+//     try {
+//         // Clone response to allow reading text even if json parsing fails
+//         const clonedResponse = response.clone();
+//         responseText = await clonedResponse.text();
+//         // Attempt to parse original response
+//         const jsonData = await response.json();
+//         return jsonData;
+//     } catch (error) {
+//         logger.error(`Failed to parse JSON response from ${url}`, {
+//             status: response.status,
+//             statusText: response.statusText,
+//             responseText: responseText.substring(0, 500), // Log first 500 chars
+//             parseErrorMessage: error.message,
+//         });
+//         // Re-throw a more informative error
+//         throw new Error(`Failed to parse JSON response from ${url}. Status: ${response.status}. Response snippet: ${responseText.substring(0, 100)}`);
+//     }
+// }
 
 // Sync dashboard
 router.get('/', async (req, res) => {
@@ -709,7 +709,7 @@ async function cleanupDataFiles(directoryPath, prefix, keepCount = 5) {
     }
 }
 
-async function syncShopifyProducts(syncId, req) {
+async function syncShopifyProducts(syncId) {
     const overallStartTime = performance.now();
     const status = syncStatus.get(syncId);
     if (!status) {
@@ -1121,8 +1121,8 @@ async function syncEtsyOrders(req, res) {
                 throw new Error(`Failed to fetch Etsy orders: ${response.statusText}`);
             }
 
-            // Use the helper to parse JSON
-            const data = await parseJsonResponse(response, url);
+            // Use built-in JSON parsing instead of custom function
+            const data = await response.json();
 
             const orders = data.results || [];
             allOrders.push(...orders);
