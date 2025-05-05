@@ -750,7 +750,7 @@ async function syncShopifyProducts(syncId) {
                 accessToken: process.env.SHOPIFY_ACCESS_TOKEN
             });
 
-            const query = `mutation { bulkOperationRunQuery( query: """ { products { edges { node { id handle title descriptionHtml vendor status productType tags onlineStoreUrl media(first: 10) { edges { node { preview { image { url altText } } ... on MediaImage { image { id url altText } } } } } variants(first: 50) { edges { node { id sku price inventoryQuantity inventoryItem { id inventoryLevels(first: 10) { edges { node { location { id name } } } } } } } } } } } } """ ) { bulkOperation { id status } userErrors { field message } } }`;
+            const query = `mutation { bulkOperationRunQuery( query: """ { products { edges { node { id handle title descriptionHtml vendor status productType tags onlineStoreUrl media(first: 10) { edges { node { preview { image { url altText } } ... on MediaImage { image { id url altText } } } } } variants(first: 50) { edges { node { id sku price inventoryQuantity inventoryItem { id inventoryLevels(first: 10) { edges { node { location { id name } } } } } } } } } } } } } """ ) { bulkOperation { id status } userErrors { field message } } }`;
 
             try {
                 logger.info('Requesting Shopify bulk product export...', { syncId });
@@ -1085,12 +1085,13 @@ router.get('/sync-orders', async (req, res) => {
 // Sync Etsy orders
 async function syncEtsyOrders(req, res) {
     const overallStartTime = performance.now();
+    let rateLimit429Count = 0;
+    let requestTimings = [];
     try {
         logger.info('Starting Etsy order sync');
         const shopId = await getShopId();
         const tokenData = JSON.parse(process.env.TOKEN_DATA);
         const limit = 100;
-        let offset = 0;
         let allOrders = [];
         let newOrderCount = 0;
         let updatedOrderCount = 0;
@@ -1112,23 +1113,95 @@ async function syncEtsyOrders(req, res) {
             'Authorization': `Bearer ${tokenData.access_token}`
         };
 
-        // Fetch all orders in the date range
-        while (true) {
-            const url = `${API_BASE_URL}/application/shops/${shopId}/receipts?limit=${limit}&offset=${offset}&min_created=${minCreated}`;
-            logger.debug(`Fetching Etsy orders: ${url}`);
-            const response = await etsyFetch(url, { headers });
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.error('Failed to fetch Etsy orders', { status: response.status, error: errorText });
-                throw new Error(`Failed to fetch Etsy orders: ${response.statusText}`);
+        // First, fetch the first page to get the total count
+        const firstUrl = `${API_BASE_URL}/application/shops/${shopId}/receipts?limit=${limit}&offset=0&min_created=${minCreated}`;
+        const reqStart = Date.now();
+        logger.debug(`Fetching Etsy orders: ${firstUrl}`);
+        let response = await etsyFetch(firstUrl, { headers });
+        let reqDuration = Date.now() - reqStart;
+        requestTimings.push(reqDuration);
+        logger.info(`Fetched batch in ${reqDuration}ms (offset=0)`);
+        if (response.status === 429) {
+            rateLimit429Count++;
+            logger.warn('Received HTTP 429 (Too Many Requests) from Etsy API', { offset: 0, url: firstUrl });
+        }
+        if (!response.ok) {
+            const errorText = await response.text();
+            logger.error('Failed to fetch Etsy orders', { status: response.status, error: errorText });
+            throw new Error(`Failed to fetch Etsy orders: ${response.statusText}`);
+        }
+        const data = await response.json();
+        const orders = data.results || [];
+        allOrders.push(...orders);
+        // Validate data.count before using for pagination
+        let totalCount = (typeof data.count === 'number' && isFinite(data.count) && data.count > 0) ? data.count : orders.length;
+        const totalPages = Math.ceil(totalCount / limit);
+
+        if (orders.length < limit || totalPages <= 1) {
+            logger.info(`Fetched ${allOrders.length} Etsy orders in date range (single page)`);
+        } else if (totalPages > 10000) { // Arbitrary safety cap
+            logger.error(`Unreasonable totalPages value: ${totalPages}. Aborting sync to prevent memory issues.`);
+            throw new Error('Etsy API returned an unreasonable count for pagination.');
+        } else {
+            // Calculate total pages
+            logger.info(`Etsy order sync: totalCount=${totalCount}, totalPages=${totalPages}`);
+            // Prepare offsets for all remaining pages
+            const offsets = [];
+            for (let i = 1; i < totalPages; i++) {
+                offsets.push(i * limit);
             }
-            const data = await response.json();
-            const orders = data.results || [];
-            allOrders.push(...orders);
-            if (orders.length < limit) break;
-            offset += limit;
+            // Define fetchPage function for parallel workers
+            async function fetchPage(offset) {
+                let retries = 0;
+                while (retries < 5) {
+                    const url = `${API_BASE_URL}/application/shops/${shopId}/receipts?limit=${limit}&offset=${offset}&min_created=${minCreated}`;
+                    const reqStart = Date.now();
+                    try {
+                        logger.debug(`Fetching Etsy orders: ${url}`);
+                        let resp = await etsyFetch(url, { headers });
+                        let reqDuration = Date.now() - reqStart;
+                        requestTimings.push(reqDuration);
+                        logger.info(`Fetched batch in ${reqDuration}ms (offset=${offset})`);
+                        if (resp.status === 429) {
+                            rateLimit429Count++;
+                            logger.warn('Received HTTP 429 (Too Many Requests) from Etsy API', { offset, url });
+                            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries))); // Exponential backoff
+                            retries++;
+                            continue;
+                        }
+                        if (!resp.ok) {
+                            const errorText = await resp.text();
+                            logger.error('Failed to fetch Etsy orders', { status: resp.status, error: errorText });
+                            throw new Error(`Failed to fetch Etsy orders: ${resp.statusText}`);
+                        }
+                        const data = await resp.json();
+                        return data.results || [];
+                    } catch (err) {
+                        logger.error('Error fetching Etsy orders page', { offset, error: err.message });
+                        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries)));
+                        retries++;
+                    }
+                }
+                logger.error('Failed to fetch Etsy orders after retries', { offset });
+                return [];
+            }
+            // Parallel fetch with concurrency pool pattern
+            const CONCURRENCY = 5;
+            let index = 0;
+            const results = [];
+            async function worker() {
+                while (index < offsets.length) {
+                    const myIndex = index++;
+                    const offset = offsets[myIndex];
+                    const res = await fetchPage(offset);
+                    results.push(...res);
+                }
+            }
+            await Promise.all(Array(CONCURRENCY).fill(0).map(() => worker()));
+            allOrders.push(...results);
         }
         logger.info(`Fetched ${allOrders.length} Etsy orders in date range`);
+        logger.info(`Etsy order sync: average request time = ${requestTimings.length ? (requestTimings.reduce((a, b) => a + b, 0) / requestTimings.length).toFixed(2) : 0}ms, 429s encountered: ${rateLimit429Count}`);
 
         // Prepare bulkWrite operations
         const bulkOps = [];

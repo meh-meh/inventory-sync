@@ -13,11 +13,12 @@ const Product = require('../models/product');
 const Order = require('../models/order');
 const Settings = require('../models/settings');
 const { logger } = require('../utils/logger');
-const dbConfig = require('../config/database');
+
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/etsy_inventory';
 
 async function wipeDatabase() {
   try {
-    await mongoose.connect(dbConfig.mongoUri, dbConfig.options || {});
+    await mongoose.connect(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
     logger.info('Connected to MongoDB. Wiping collections...');
 
     const productResult = await Product.deleteMany({});
