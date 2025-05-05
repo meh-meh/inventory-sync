@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Product = require('../models/product');
 const Order = require('../models/order');
+const Settings = require('../models/settings'); // Import Settings model
 const { logger } = require('../utils/logger');
 // Import etsyFetch and API_BASE_URL
 const { getShopId, etsyFetch, API_BASE_URL } = require('../utils/etsy-helpers');
@@ -14,29 +15,76 @@ const { pipeline } = require('stream/promises');
 const readline = require('readline');
 // Import performance from perf_hooks
 const { performance } = require('perf_hooks');
+const Shopify = require('shopify-api-node'); // Add this import for direct Shopify client
+const fsSync = require('fs'); // For createWriteStream
 
 // In-memory store for sync status
 const syncStatus = new Map();
 
+// --- Helper Function to Parse JSON with Logging ---
+async function parseJsonResponse(response, url) {
+    let responseText = ''; // Store raw text
+    try {
+        // Clone response to allow reading text even if json parsing fails
+        const clonedResponse = response.clone();
+        responseText = await clonedResponse.text();
+        // Attempt to parse original response
+        const jsonData = await response.json();
+        return jsonData;
+    } catch (error) {
+        logger.error(`Failed to parse JSON response from ${url}`, {
+            status: response.status,
+            statusText: response.statusText,
+            responseText: responseText.substring(0, 500), // Log first 500 chars
+            parseErrorMessage: error.message,
+        });
+        // Re-throw a more informative error
+        throw new Error(`Failed to parse JSON response from ${url}. Status: ${response.status}. Response snippet: ${responseText.substring(0, 100)}`);
+    }
+}
+
 // Sync dashboard
 router.get('/', async (req, res) => {
     try {
+        // Fetch last sync times from settings
+        const etsySyncTime = await Settings.getSetting('lastEtsyOrderSync');
+        const shopifySyncTime = await Settings.getSetting('lastShopifyOrderSync');
+        const etsyProductSyncTime = await Settings.getSetting('lastEtsyProductSync');
+        const shopifyProductSyncTime = await Settings.getSetting('lastShopifyProductSync');
+
         const [
             totalProducts,
             productsWithEtsy,
             productsWithShopify,
-            lastEtsySync,
-            lastShopifySync
+            lastEtsyProductSyncDoc, // Renamed for clarity
+            lastShopifyProductSyncDoc, // Renamed for clarity
+            lastEtsyOrderSyncDoc, // Added for Etsy order sync time
+            lastShopifyOrderSyncDoc // Added for Shopify order sync time
         ] = await Promise.all([
             Product.countDocuments(),
             Product.countDocuments({ 'etsy_data.listing_id': { $exists: true } }),
             Product.countDocuments({ 'shopify_data.product_id': { $exists: true } }),
+            // Find latest product sync time (Etsy)
             Product.findOne({ 'etsy_data.last_synced': { $exists: true } })
                 .sort({ 'etsy_data.last_synced': -1 })
-                .select('etsy_data.last_synced'),
+                .select('etsy_data.last_synced')
+                .lean(), // Use lean for performance
+            // Find latest product sync time (Shopify)
             Product.findOne({ 'shopify_data.last_synced': { $exists: true } })
                 .sort({ 'shopify_data.last_synced': -1 })
                 .select('shopify_data.last_synced')
+                .lean(), // Use lean for performance
+            // Find latest order sync time (Etsy) - using updatedAt
+            Order.findOne({ marketplace: 'etsy', updatedAt: { $exists: true } })
+                .sort({ updatedAt: -1 })
+                .select('updatedAt')
+                .lean(),
+            // Find latest order sync time (Shopify) - using updatedAt
+            Order.findOne({ marketplace: 'shopify', updatedAt: { $exists: true } })
+                .sort({ updatedAt: -1 })
+                .select('updatedAt')
+                .lean()
+            // Note: lastInventorySync source is still TBD
         ]);
 
         res.render('sync', {
@@ -44,14 +92,34 @@ router.get('/', async (req, res) => {
                 totalProducts,
                 productsWithEtsy,
                 productsWithShopify,
-                lastEtsySync: lastEtsySync?.etsy_data?.last_synced,
-                lastShopifySync: lastShopifySync?.shopify_data?.last_synced
-            }
+                // Extract dates safely
+                lastEtsySync: lastEtsyProductSyncDoc?.etsy_data?.last_synced,
+                lastShopifySync: lastShopifyProductSyncDoc?.shopify_data?.last_synced,
+                lastEtsyOrderSync: lastEtsyOrderSyncDoc?.updatedAt,
+                lastShopifyOrderSync: lastShopifyOrderSyncDoc?.updatedAt,
+                lastInventorySync: null // Placeholder - still needs data source
+            },
+            activePage: 'sync', // Add activePage here
+            // Pass sync times to the template, formatting them
+            lastEtsyOrderSync: etsySyncTime ? new Date(etsySyncTime).toLocaleString() : 'N/A',
+            lastShopifyOrderSync: shopifySyncTime ? new Date(shopifySyncTime).toLocaleString() : 'N/A',
+            lastEtsyProductSync: etsyProductSyncTime ? new Date(etsyProductSyncTime).toLocaleString() : 'N/A',
+            lastShopifyProductSync: shopifyProductSyncTime ? new Date(shopifyProductSyncTime).toLocaleString() : 'N/A'
         });
     } catch (error) {
-        console.error('Error fetching sync dashboard:', error);
-        req.flash('error', 'Error loading sync dashboard');
-        res.redirect('/');
+        logger.error('Error fetching sync dashboard data:', error); // Log the error
+        req.flash('error', 'Error loading sync dashboard data');
+        // Render page with empty stats on error to avoid breaking layout
+        res.render('sync', { 
+            stats: { 
+                lastEtsySync: null, 
+                lastShopifySync: null, 
+                lastEtsyOrderSync: null, 
+                lastShopifyOrderSync: null, 
+                lastInventorySync: null 
+            }, 
+            activePage: 'sync' 
+        }); 
     }
 });
 
@@ -135,9 +203,12 @@ async function fetchAllListings(shop_id, syncId) {
                 redirect: 'follow'
             };
 
+            // Define the URL string before using it
+            const fetchUrl = `https://openapi.etsy.com/v3/application/shops/${shop_id}/listings?${urlencoded.toString()}`;
+
             // Use etsyFetch instead of the undefined rateLimitedFetch
             const response = await etsyFetch(
-                `https://openapi.etsy.com/v3/application/shops/${shop_id}/listings?${urlencoded.toString()}`,
+                fetchUrl, // Use the defined URL string
                 requestOptions
             );
 
@@ -171,7 +242,7 @@ async function fetchAllListings(shop_id, syncId) {
             offset = offset + limit;
 
             // Update progress based on how many listing states we've completed
-            const progressValue = 10 + Math.round((i / states.length) * 15) + 
+            const progressValue = 10 + Math.round((i / states.length) * 70) + 
                 (listings.length < limit ? 3 : 0); // Extra progress when completing a state
             updateStatus(progressValue);
 
@@ -352,13 +423,41 @@ router.get('/sync-etsy', async (req, res) => {
 });
 
 router.get('/sync-shopify', async (req, res) => {
-    try {
-        await syncShopifyProducts(req);
-        res.json({ success: true, message: 'Shopify sync started successfully' });
-    } catch (error) {
-        logger.error('Error starting Shopify sync:', { error: error.message });
-        res.status(500).json({ success: false, error: error.message });
-    }
+    const syncId = req.query.syncId || Date.now().toString();
+    console.log(`Starting Shopify sync with syncId: ${syncId}`);
+
+    // Initialize sync status
+    syncStatus.set(syncId, {
+        syncCount: 0, // Placeholder, will be updated
+        counts: {}, // Placeholder
+        removedCount: 0, // Placeholder
+        progress: 5, // Start with 5%
+        complete: false,
+        error: null,
+        currentPhase: 'Initializing'
+    });
+
+    // Start the sync process in the background, passing the syncId
+    syncShopifyProducts(syncId, req) // Pass syncId here
+        .catch(error => {
+            // This catch is for errors thrown *synchronously* before the async function really gets going
+            // or if the async function itself isn't caught internally properly (should be avoided).
+            logger.error('Error directly from syncShopifyProducts invocation:', { syncId, error: error.message });
+            const status = syncStatus.get(syncId);
+            if (status) {
+                status.complete = true;
+                status.error = `Failed to start Shopify sync: ${error.message}`;
+                status.progress = 100; // Mark as complete even on error start
+                syncStatus.set(syncId, status);
+            }
+        });
+
+    // Respond immediately to the client with the syncId
+    res.json({
+        success: true,
+        message: 'Shopify sync started successfully',
+        syncId // Return the syncId
+    });
 });
 
 // Background Etsy product sync function
@@ -519,6 +618,9 @@ async function syncEtsyProducts(syncId, req) {
         syncStatus.set(syncId, status);
         logger.info('Etsy product sync completed successfully', { syncId });
 
+        // Record successful sync time in Settings
+        await Settings.setSetting('lastEtsyProductSync', new Date().toISOString());
+
     } catch (error) {
         logger.error('Error syncing Etsy products in background', { error: error.message });
         
@@ -546,7 +648,8 @@ async function syncEtsyProducts(syncId, req) {
 
 async function getNewestFile(dirPath) {
     try {
-      const files = await fs.promises.readdir(dirPath);
+      // Corrected: Call readdir directly on fs (which is fs.promises)
+      const files = await fs.readdir(dirPath); 
   
       if (files.length === 0) {
         return null; // Return null if the directory is empty
@@ -555,7 +658,8 @@ async function getNewestFile(dirPath) {
       const filesWithStats = await Promise.all(
         files.map(async (file) => {
           const filePath = path.join(dirPath, file);
-          const stats = await fs.promises.stat(filePath);
+          // Corrected: Call stat directly on fs
+          const stats = await fs.stat(filePath); 
           return { file, stats };
         })
       );
@@ -572,7 +676,8 @@ async function getNewestFile(dirPath) {
 
 async function cleanupDataFiles(directoryPath, prefix, keepCount = 5) {
     try {
-        const files = await fs.promises.readdir(directoryPath);
+        // Corrected: Call readdir directly on fs
+        const files = await fs.readdir(directoryPath); 
         const relevantFiles = files
             .filter(file => file.startsWith(prefix) && file.endsWith('.jsonl'))
             .map(file => {
@@ -588,7 +693,8 @@ async function cleanupDataFiles(directoryPath, prefix, keepCount = 5) {
             logger.info(`Cleaning up ${filesToDelete.length} old data files with prefix "${prefix}"...`);
             for (const file of filesToDelete) {
                 try {
-                    await fs.promises.unlink(file.path);
+                    // Corrected: Call unlink directly on fs
+                    await fs.unlink(file.path); 
                     logger.debug(`Deleted old data file: ${file.name}`);
                 } catch (unlinkError) {
                     logger.error(`Error deleting file ${file.name}:`, unlinkError);
@@ -603,475 +709,359 @@ async function cleanupDataFiles(directoryPath, prefix, keepCount = 5) {
     }
 }
 
-async function syncShopifyProducts(req) {
+async function syncShopifyProducts(syncId, req) {
+    const overallStartTime = performance.now();
+    const status = syncStatus.get(syncId);
+    if (!status) {
+        logger.error(`Sync status not found for syncId: ${syncId}. Aborting Shopify sync.`);
+        return; // Cannot proceed without a status object
+    }
+
     const directoryPath = path.resolve(__dirname, '..', 'data');
     const filePrefix = 'shopify_products_';
     let fileName = path.resolve(directoryPath, `${filePrefix}${Date.now()}.jsonl`);
-    let url = null; // Define url here to be accessible later
-
-    const allProducts = {};
+    let url = null;
+    let bulkOperationId = null;
     let ignoreCount = 0;
-    let bulkOperationId = null; // To store the bulk operation ID
 
-    try { // Wrap the main logic in a try...catch
-        const existingData = await getNewestFile(directoryPath); // Assuming getNewestFile handles errors
+    try {
+        status.currentPhase = 'Checking existing data';
+        status.progress = 10;
+        syncStatus.set(syncId, status);
 
-        if (existingData && existingData.startsWith(filePrefix) && path.parse(existingData).name.split('_').pop() > Date.now() - 1000 * 60 * 60 * 2) { // Check if the file is less than 2 hours old
-            logger.info(`Using existing data file: ${existingData}`);
+        const existingData = await getNewestFile(directoryPath);
+
+        if (existingData && existingData.startsWith(filePrefix) && path.parse(existingData).name.split('_').pop() > Date.now() - 1000 * 60 * 60 * 2) {
+            logger.info(`Using existing data file: ${existingData}`, { syncId });
             fileName = path.resolve(directoryPath, existingData);
-        } else { // If the file is older than 2 hours, fetch new data
-            logger.info('Existing data file is old or missing, fetching new data from Shopify...');
-            const shopify = shopifyHelpers.getShopifyClient();
+            status.currentPhase = 'Using cached data';
+            status.progress = 20; // Jump ahead if using cache
+            syncStatus.set(syncId, status);
+            url = 'local'; // Indicate local file usage
+        } else {
+            logger.info('Existing data file is old or missing, fetching new data from Shopify...', { syncId });
+            status.currentPhase = 'Requesting bulk export';
+            status.progress = 15;
+            syncStatus.set(syncId, status);
 
-            const query = `mutation {
-                bulkOperationRunQuery(
-                    query: """
-                        {
-                            products {
-                                edges {
-                                    node {
-                                        id
-                                        handle # Added handle
-                                        title
-                                        descriptionHtml
-                                        vendor
-                                        status
-                                        productType # Added productType
-                                        tags
-                                        onlineStoreUrl
-                                        media(first: 10) { # Limit media items
-                                            edges {
-                                                node {
-                                                    preview { # Get preview image for simplicity
-                                                        image {
-                                                            url
-                                                            altText # Use altText
-                                                        }
-                                                    }
-                                                    ... on MediaImage {
-                                                        image {
-                                                            id # Need image ID for potential linking
-                                                            url
-                                                            altText
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        variants(first: 50) { # Limit variants
-                                            edges {
-                                                node {
-                                                    id
-                                                    sku
-                                                    price # Added price
-                                                    inventoryQuantity
-                                                    inventoryItem {
-                                                        id # Need inventory item ID
-                                                        inventoryLevels(first: 10) { # Limit locations
-                                                            edges {
-                                                                node {
-                                                                    availableQuantity # <-- ADD THIS LINE
-                                                                    location {
-                                                                        id
-                                                                        name
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    """
-                ) {
-                    bulkOperation {
-                        id
-                        status
-                    }
-                    userErrors {
-                        field
-                        message
-                    }
-                }
-            `;
+            // Use direct Shopify client as in sync_old.js
+            const shopify = new Shopify({
+                shopName: process.env.SHOPIFY_SHOP_NAME,
+                accessToken: process.env.SHOPIFY_ACCESS_TOKEN
+            });
+
+            const query = `mutation { bulkOperationRunQuery( query: """ { products { edges { node { id handle title descriptionHtml vendor status productType tags onlineStoreUrl media(first: 10) { edges { node { preview { image { url altText } } ... on MediaImage { image { id url altText } } } } } variants(first: 50) { edges { node { id sku price inventoryQuantity inventoryItem { id inventoryLevels(first: 10) { edges { node { location { id name } } } } } } } } } } } } """ ) { bulkOperation { id status } userErrors { field message } } }`;
 
             try {
-                logger.info('Requesting Shopify bulk product export...');
+                logger.info('Requesting Shopify bulk product export...', { syncId });
                 const initialResult = await shopify.graphql(query);
+                logger.debug('Received initial result from Shopify GraphQL:', { syncId, initialResult });
 
-                if (initialResult.userErrors && initialResult.userErrors.length > 0) {
-                    logger.error('Shopify bulk operation user errors:', initialResult.userErrors);
-                    throw new Error(`Shopify user errors: ${initialResult.userErrors.map(e => e.message).join(', ')}`);
+                if (initialResult.bulkOperationRunQuery?.userErrors?.length > 0) {
+                    logger.error('Shopify bulk operation user errors:', { syncId, errors: initialResult.bulkOperationRunQuery.userErrors });
+                    // Throw error to be caught by the outer catch block which updates status
+                    throw new Error(`Shopify user errors: ${initialResult.bulkOperationRunQuery.userErrors.map(e => e.message).join(', ')}`);
                 }
 
-                if (!initialResult.bulkOperationRunQuery || !initialResult.bulkOperationRunQuery.bulkOperation) {
-                     logger.error('Unexpected response from Shopify bulk operation initiation:', initialResult);
-                     throw new Error('Failed to initiate Shopify bulk operation.');
+                if (!initialResult.bulkOperationRunQuery?.bulkOperation?.id) {
+                    logger.error('Unexpected response structure from Shopify bulk operation initiation:', { syncId, initialResult });
+                    // Throw error to be caught by the outer catch block
+                    throw new Error('Failed to initiate Shopify bulk operation or retrieve ID.');
                 }
 
                 bulkOperationId = initialResult.bulkOperationRunQuery.bulkOperation.id;
-                let status = initialResult.bulkOperationRunQuery.bulkOperation.status;
-                logger.info(`Shopify bulk operation started. ID: ${bulkOperationId}, Status: ${status}`);
+                let operationStatus = initialResult.bulkOperationRunQuery.bulkOperation.status;
+                logger.info(`Shopify bulk operation started. ID: ${bulkOperationId}, Status: ${operationStatus}`, { syncId });
 
+                status.currentPhase = 'Polling bulk export status';
+                status.progress = 20;
+                syncStatus.set(syncId, status);
 
-                // Polling for completion using async/await
-                const queryJob = `query {
-                    node(id: "${bulkOperationId}") {
-                       ... on BulkOperation {
-                            id
-                            status
-                            errorCode
-                            createdAt
-                            completedAt
-                            objectCount
-                            fileSize
-                            url
-                            partialDataUrl
-                        }
-                    }
-                }`;
-
-                const MAX_POLL_ATTEMPTS = 60; // Poll for max 5 minutes (60 attempts * 5 seconds)
-                const POLL_INTERVAL_MS = 5000; // 5 seconds
+                const queryJob = `query { node(id: "${bulkOperationId}") { ... on BulkOperation { id status errorCode createdAt completedAt objectCount fileSize url partialDataUrl } } }`;
+                const MAX_POLL_ATTEMPTS = 60;
+                const POLL_INTERVAL_MS = 5000;
                 let pollAttempts = 0;
 
                 while (pollAttempts < MAX_POLL_ATTEMPTS) {
                     pollAttempts++;
-                    await shopifyHelpers.sleep(POLL_INTERVAL_MS); // Use helper sleep
-
-                    logger.debug(`Polling Shopify bulk operation status (Attempt ${pollAttempts})...`);
+                    await shopifyHelpers.sleep(POLL_INTERVAL_MS);
+                    logger.debug(`Polling Shopify bulk operation status (Attempt ${pollAttempts})...`, { syncId });
                     const pollResult = await shopify.graphql(queryJob);
 
                     if (!pollResult.node) {
-                         logger.warn(`Bulk operation ${bulkOperationId} not found during polling.`);
-                         // Decide how to handle: retry, fail, etc. Maybe wait longer?
-                         continue; // Continue polling for now
+                        logger.warn(`Bulk operation ${bulkOperationId} not found during polling.`, { syncId });
+                        continue;
                     }
 
-                    status = pollResult.node.status;
-                    logger.debug(`Bulk operation status: ${status}`);
+                    operationStatus = pollResult.node.status;
+                    logger.debug(`Bulk operation status: ${operationStatus}`, { syncId });
 
-                    if (status === 'COMPLETED') {
+                    // Update progress slightly during polling
+                    status.progress = 20 + Math.min(60, Math.round((pollAttempts / MAX_POLL_ATTEMPTS) * 20)); // Progress from 20% to 40% during polling
+                    syncStatus.set(syncId, status);
+
+
+                    if (operationStatus === 'COMPLETED') {
                         url = pollResult.node.url;
-                        logger.info(`Shopify bulk operation ${bulkOperationId} completed successfully. URL: ${url}`);
-                        break; // Exit loop
-                    } else if (status === 'FAILED') {
-                        logger.error(`Shopify bulk operation ${bulkOperationId} failed.`, { errorCode: pollResult.node.errorCode });
+                        logger.info(`Shopify bulk operation ${bulkOperationId} completed successfully. URL: ${url}`, { syncId });
+                        status.currentPhase = 'Downloading data';
+                        status.progress = 40;
+                        syncStatus.set(syncId, status);
+                        break;
+                    } else if (operationStatus === 'FAILED') {
+                        logger.error(`Shopify bulk operation ${bulkOperationId} failed.`, { syncId, errorCode: pollResult.node.errorCode });
+                        // Throw error to be caught by the outer catch block
                         throw new Error(`Shopify bulk operation failed with code: ${pollResult.node.errorCode}`);
-                    } else if (status === 'CANCELED') {
-                         logger.warn(`Shopify bulk operation ${bulkOperationId} was canceled.`);
-                         throw new Error('Shopify bulk operation was canceled.');
+                    } else if (operationStatus === 'CANCELED') {
+                        logger.warn(`Shopify bulk operation ${bulkOperationId} was canceled.`, { syncId });
+                         // Throw error to be caught by the outer catch block
+                        throw new Error('Shopify bulk operation was canceled.');
                     }
-                    // Continue loop if status is CREATED or RUNNING
                 }
 
-                if (status !== 'COMPLETED') {
-                    logger.error(`Shopify bulk operation ${bulkOperationId} timed out after ${pollAttempts} attempts.`);
+                if (operationStatus !== 'COMPLETED') {
+                    logger.error(`Shopify bulk operation ${bulkOperationId} timed out after ${pollAttempts} attempts.`, { syncId });
+                     // Throw error to be caught by the outer catch block
                     throw new Error('Shopify bulk operation timed out.');
                 }
 
             } catch (err) {
-                logger.error('Error during Shopify bulk operation:', err);
-                throw err; // Re-throw to be caught by outer try...catch
+                // Catch errors specifically from the bulk operation initiation/polling phase
+                logger.error('Error during Shopify bulk operation initiation or polling:', {
+                    syncId,
+                    errorMessage: err.message,
+                    errorStack: err.stack,
+                });
+                // IMPORTANT: Re-throw the error so the main catch block handles status update
+                throw err;
             }
-
 
             if (!url) {
-                 throw new Error('Bulk operation completed but no download URL was found.');
-            }
-
-            logger.info(`Downloading Shopify product data from ${url}...`);
-            try {
-                const response = await fetch(url); // Use global fetch
-
-                if (!response.ok || !response.body) {
-                    logger.error('Failed to download Shopify products file', { status: response.status, statusText: response.statusText });
-                    throw new Error(`Failed to download Shopify products file: ${response.statusText}`);
+                logger.warn('Skipping Shopify product download as no URL was obtained.', { syncId });
+                 // Throw error to be caught by the outer catch block
+                throw new Error('Failed to obtain download URL from Shopify bulk operation.');
+            } else {
+                logger.info(`Downloading Shopify product data from ${url}...`, { syncId });
+                status.currentPhase = 'Downloading data'; // Already set, but good to be explicit
+                status.progress = 45;
+                syncStatus.set(syncId, status);
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok || !response.body) {
+                        logger.error('Failed to download Shopify products file', { syncId, status: response.status, statusText: response.statusText });
+                        throw new Error(`Failed to download Shopify products file: ${response.statusText}`);
+                    }
+                    await fs.mkdir(directoryPath, { recursive: true }); // Use fs.promises.mkdir
+                    const fileWriteStream = fsSync.createWriteStream(fileName); // Use fs.createWriteStream
+                     if (typeof Readable.fromWeb === 'function') {
+                        const readableWebStream = Readable.fromWeb(response.body);
+                        await pipeline(readableWebStream, fileWriteStream);
+                     } else {
+                         logger.warn('Readable.fromWeb not available. Stream piping might fail.', { syncId });
+                         throw new Error('Node version too old for efficient stream handling from fetch response.');
+                     }
+                    logger.info(`Shopify product data downloaded successfully to ${fileName}`, { syncId });
+                    status.progress = 50;
+                    syncStatus.set(syncId, status);
+                } catch (downloadError) {
+                    logger.error('Error downloading or saving Shopify product data:', { syncId, error: downloadError });
+                    throw downloadError; // Re-throw for main catch block
                 }
-
-                // Ensure directory exists
-                await fs.promises.mkdir(directoryPath, { recursive: true });
-
-                const fileWriteStream = fs.createWriteStream(fileName);
-                // Use Readable.fromWeb for Node 18+ compatibility
-                 if (typeof Readable.fromWeb === 'function') {
-                    const readableWebStream = Readable.fromWeb(response.body);
-                    await pipeline(readableWebStream, fileWriteStream);
-                 } else {
-                    // Fallback for older Node versions (might need polyfill or different approach)
-                    // For simplicity, assuming Node 18+ for now. Add compatibility if needed.
-                     logger.warn('Readable.fromWeb not available. Stream piping might fail.');
-                     // A potential fallback (less efficient):
-                     // const buffer = await response.arrayBuffer();
-                     // await fs.promises.writeFile(fileName, Buffer.from(buffer));
-                     throw new Error('Node version too old for efficient stream handling from fetch response.');
-                 }
-
-
-                logger.info(`Shopify product data downloaded successfully to ${fileName}`);
-            } catch (downloadError) {
-                logger.error('Error downloading or saving Shopify product data:', downloadError);
-                throw downloadError; // Re-throw
             }
         }
 
-        // Read the JSONL file and process each line
-        logger.info(`Processing Shopify data from file: ${fileName}`);
-        const fileReadStream = fs.createReadStream(fileName);
-        const rl = readline.createInterface({
-            input: fileReadStream,
-            crlfDelay: Infinity
-        });
+        // --- Process downloaded data ---
+        if (url && fileName) {
+            logger.info(`Processing Shopify data from file: ${fileName}`, { syncId });
+            status.currentPhase = 'Processing data';
+            status.progress = 55;
+            syncStatus.set(syncId, status);
 
-        const variantToProductMap = {}; // Map: variantId -> { productId, inventoryItemId }
-        // REMOVED: const inventoryItemToVariantMap = {}; // Map: inventoryItemId -> { variantId, productId }
+            const fileReadStream = fsSync.createReadStream(fileName); // Use fsSync for streams
+            const rl = readline.createInterface({
+                input: fileReadStream,
+                crlfDelay: Infinity
+            });
 
-        rl.on('line', (line) => {
-            try {
-                const jsonLine = JSON.parse(line);
+            const allProducts = {};
+            const variantToProductMap = {};
+            let lineCount = 0;
 
-                if (jsonLine.__parentId) {
-                    // --- Child Object Processing ---
-                    const parentId = jsonLine.__parentId;
+            rl.on('line', (line) => {
+                // ... (keep existing line processing logic) ...
+                 lineCount++;
+                 try {
+                     if (!line.trim()) return;
+                     const jsonLine = JSON.parse(line);
+                     // --- Existing JSON processing logic ---
+                     if (jsonLine.__parentId) {
+                         const parentId = jsonLine.__parentId;
+                         if (jsonLine.preview?.image || jsonLine.image) {
+                             if (!allProducts[parentId]) { logger.warn(`Parent product ${parentId} not found for image line:`, { syncId, jsonLine }); return; }
+                             const imageInfo = jsonLine.image || jsonLine.preview?.image;
+                             if (imageInfo) { allProducts[parentId].images.push({ id: imageInfo.id, url: imageInfo.url, alt: imageInfo.altText || null }); }
+                         } else if (jsonLine.location) {
+                             const variantId = parentId;
+                             const mapping = variantToProductMap[variantId];
+                             if (mapping) {
+                                 const { productId } = mapping;
+                                 const product = allProducts[productId];
+                                 const variant = product?.variants.find(v => v.id === variantId);
+                                 if (variant) {
+                                     if (!variant.inventoryLevels) variant.inventoryLevels = [];
+                                     variant.inventoryLevels.push({ locationName: jsonLine.location.name, locationId: jsonLine.location.id });
+                                 } else { logger.warn(`InventoryLevel line: Variant ${variantId} not found within Product ${productId}`, { syncId, line: jsonLine, productId, variantId }); }
+                             } else { logger.error(`InventoryLevel line: Mapping not found for variant ID: ${variantId}.`, { syncId, line: jsonLine }); }
+                         } else if (jsonLine.sku !== undefined) {
+                             if (!allProducts[parentId]) { logger.warn(`Parent product ${parentId} not found for variant line:`, { syncId, jsonLine }); return; }
+                             const variantData = { id: jsonLine.id, sku: jsonLine.sku, price: jsonLine.price, inventoryQuantity: jsonLine.inventoryQuantity, inventoryItemId: jsonLine.inventoryItem?.id, inventoryLevels: [] };
+                             allProducts[parentId].variants.push(variantData);
+                             const productId = parentId; const variantId = jsonLine.id; const inventoryItemId = jsonLine.inventoryItem?.id;
+                             variantToProductMap[variantId] = { productId: productId, inventoryItemId: inventoryItemId };
+                             if (!jsonLine.sku && !allProducts[parentId].ignore) { allProducts[parentId].ignore = "check sku"; }
+                         } else { logger.warn("Unknown child object type in JSONL:", { syncId, jsonLine }); }
+                     } else if (jsonLine.id && jsonLine.title) {
+                         const productId = jsonLine.id;
+                         allProducts[productId] = { id: productId, handle: jsonLine.handle, title: jsonLine.title, descriptionHtml: jsonLine.descriptionHtml, vendor: jsonLine.vendor, status: jsonLine.status, productType: jsonLine.productType, tags: jsonLine.tags || [], onlineStoreUrl: jsonLine.onlineStoreUrl, images: [], variants: [], ignore: false };
+                         if (!(jsonLine.vendor === 'The Bearcub Book Den' || jsonLine.vendor === 'Sprinkles Studios')) { allProducts[productId].ignore = true; }
+                     } else { logger.warn("Skipping unrecognized line in JSONL:", { syncId, line: line.substring(0, 100) }); }
+                 } catch (parseError) {
+                     logger.error(`Error parsing JSONL line ${lineCount}: ${parseError.message}`, { syncId, fileName, lineNumber: lineCount, lineContent: line.substring(0, 500) });
+                 }
+            });
 
-                    if (jsonLine.preview?.image || jsonLine.image) {
-                        // Line is an image (media) - Parent MUST be a Product
-                        if (!allProducts[parentId]) {
-                            logger.warn(`Parent product ${parentId} not found for image line:`, jsonLine);
-                            return; // Skip processing this line
-                        }
-                        const imageInfo = jsonLine.image || jsonLine.preview?.image;
-                        if (imageInfo) {
-                            allProducts[parentId].images.push({
-                                id: imageInfo.id,
-                                url: imageInfo.url,
-                                alt: imageInfo.altText || null
-                            });
-                        }
-                    } else if (jsonLine.location) {
-                        // Line is an inventory level - Parent MUST be a ProductVariant
-                        const variantId = parentId; // Parent ID is the Variant ID
-                        const mapping = variantToProductMap[variantId]; // Use variantToProductMap
+            await new Promise((resolve, reject) => {
+                rl.on('close', resolve);
+                rl.on('error', reject);
+                fileReadStream.on('error', reject);
+            });
 
-                        if (mapping) {
-                            // Mapping found, process immediately
-                            const { productId } = mapping; // Get productId from the map
-                            const product = allProducts[productId];
-                            // Find the variant using the variantId (which is parentId)
-                            const variant = product?.variants.find(v => v.id === variantId);
+            logger.info(`Finished initial processing of ${fileName}. Processed ${lineCount} lines. Found ${Object.keys(allProducts).length} products.`, { syncId });
+            status.syncCount = Object.keys(allProducts).length; // Update total count
+            status.progress = 70;
+            syncStatus.set(syncId, status);
 
-                            if (variant) {
-                                if (!variant.inventoryLevels) {
-                                    variant.inventoryLevels = [];
-                                }
-                                variant.inventoryLevels.push({
-                                    locationName: jsonLine.location.name,
-                                    locationId: jsonLine.location.id,
-                                    quantity: jsonLine.availableQuantity // Ensure quantity is captured
-                                });
-                            } else {
-                                // This case might happen if the product itself wasn't processed correctly earlier
-                                logger.warn(`InventoryLevel line: Variant ${variantId} not found within Product ${productId}, although mapping exists.`, { line: jsonLine, productId, variantId });
-                            }
-                        } else {
-                            // Mapping not found - This indicates a potential issue with JSONL order or processing logic.
-                            logger.error(`InventoryLevel line: Mapping not found for variant ID: ${variantId}. This indicates a potential issue with JSONL order or processing logic.`, { line: jsonLine });
-                        }
-                    } else if (jsonLine.sku !== undefined) {
-                        // Line is a variant - Parent MUST be a Product
-                        if (!allProducts[parentId]) {
-                            logger.warn(`Parent product ${parentId} not found for variant line:`, jsonLine);
-                            return; // Skip processing this line
-                        }
 
-                        const variantData = {
-                            id: jsonLine.id,
-                            sku: jsonLine.sku,
-                            price: jsonLine.price,
-                            inventoryQuantity: jsonLine.inventoryQuantity,
-                            inventoryItemId: jsonLine.inventoryItem?.id,
-                            inventoryLevels: [] // Initialize inventoryLevels array
-                        };
-                        allProducts[parentId].variants.push(variantData);
+            // --- Database Update Logic ---
+            logger.info('Preparing database updates for Shopify products...', { syncId });
+            status.currentPhase = 'Updating database';
+            status.progress = 75;
+            syncStatus.set(syncId, status);
 
-                        // Populate maps
-                        const productId = parentId;
-                        const variantId = jsonLine.id;
-                        const inventoryItemId = jsonLine.inventoryItem?.id;
+            const bulkOps = [];
+            const syncTimestamp = new Date();
+            ignoreCount = 0; // Reset ignore count for this phase
 
-                        variantToProductMap[variantId] = { productId: productId, inventoryItemId: inventoryItemId };
-                        // REMOVED: if (inventoryItemId) { inventoryItemToVariantMap[inventoryItemId] = { variantId: variantId, productId: productId }; }
+            for (const productId in allProducts) {
+                // ... (keep existing variant processing and bulkOps creation logic) ...
+                 const shopifyProduct = allProducts[productId];
+                 if (shopifyProduct.ignore === true) { ignoreCount++; continue; }
+                 if (shopifyProduct.ignore === "check sku") { logger.warn(`Product "${shopifyProduct.title}" (${productId}) needs SKU check.`, { syncId }); continue; }
+                 for (const variant of shopifyProduct.variants) {
+                     if (!variant.sku) { logger.warn(`Skipping variant without SKU for product "${shopifyProduct.title}" (${productId}), variant ID ${variant.id}`, { syncId }); continue; }
+                     bulkOps.push({
+                         updateOne: {
+                             filter: { sku: variant.sku },
+                             update: {
+                                 $set: {
+                                     sku: variant.sku, name: shopifyProduct.title,
+                                     'shopify_data.product_id': shopifyProduct.id, 'shopify_data.variant_id': variant.id, 'shopify_data.title': shopifyProduct.title, 'shopify_data.description': shopifyProduct.descriptionHtml, 'shopify_data.price': parseFloat(variant.price || 0), 'shopify_data.inventory_quantity': variant.inventoryQuantity, 'shopify_data.tags': shopifyProduct.tags, 'shopify_data.images': shopifyProduct.images.map(img => ({ url: img.url, alt: img.alt })), 'shopify_data.handle': shopifyProduct.handle, 'shopify_data.vendor': shopifyProduct.vendor, 'shopify_data.product_type': shopifyProduct.productType, 'shopify_data.status': shopifyProduct.status, 'shopify_data.last_synced': syncTimestamp,
+                                     raw_shopify_data: { product: shopifyProduct, variant: variant, last_raw_sync: syncTimestamp },
+                                     last_updated: syncTimestamp
+                                 },
+                                 $setOnInsert: { quantity_on_hand: variant.inventoryQuantity || 0, quantity_committed: 0 }
+                             },
+                             upsert: true
+                         }
+                     });
+                 }
+            }
 
-                        if (!jsonLine.sku && !allProducts[parentId].ignore) {
-                            allProducts[parentId].ignore = "check sku";
-                        }
-                    } else {
-                        logger.warn("Unknown child object type in JSONL:", jsonLine);
-                    }
-                } else if (jsonLine.id && jsonLine.title) {
-                    // --- Product Object Processing ---
-                    const productId = jsonLine.id;
-                    allProducts[productId] = {
-                        id: productId,
-                        handle: jsonLine.handle,
-                        title: jsonLine.title,
-                        descriptionHtml: jsonLine.descriptionHtml,
-                        vendor: jsonLine.vendor,
-                        status: jsonLine.status,
-                        productType: jsonLine.productType,
-                        tags: jsonLine.tags || [],
-                        onlineStoreUrl: jsonLine.onlineStoreUrl,
-                        images: [],
-                        variants: [],
-                        ignore: false
+            logger.info(`Prepared ${bulkOps.length} database update operations.`, { syncId });
+            if (ignoreCount > 0) {
+                 logger.info(`Ignored ${ignoreCount} products based on vendor or other criteria.`, { syncId });
+            }
+            status.syncCount = bulkOps.length; // Refine sync count to actual operations
+
+            if (bulkOps.length > 0) {
+                logger.info('Performing bulk write operation to database...', { syncId });
+                status.progress = 85;
+                syncStatus.set(syncId, status);
+                try {
+                    const result = await Product.bulkWrite(bulkOps);
+                    logger.info('Database bulk write completed.', { syncId, upserted: result.upsertedCount, modified: result.modifiedCount, matched: result.matchedCount });
+                    // Update status counts based on result
+                    status.counts = { // Example counts, adjust as needed
+                        added: result.upsertedCount,
+                        updated: result.modifiedCount
                     };
-                    if (!(jsonLine.vendor === 'The Bearcub Book Den' || jsonLine.vendor === 'Sprinkles Studios')) {
-                        allProducts[productId].ignore = true;
-                    }
-                } else {
-                    logger.warn("Skipping unrecognized line in JSONL:", line);
+                } catch (dbError) {
+                    logger.error('Error during database bulk write:', { syncId, error: dbError });
+                    throw dbError; // Re-throw for main catch block
                 }
-            } catch (parseError) {
-                logger.error(`Error parsing JSONL line: ${parseError.message}`, { line });
+            } else {
+                logger.info('No valid Shopify products found to update in the database.', { syncId });
+                 status.counts = { added: 0, updated: 0 }; // Set counts to zero
             }
-        });
-
-        await new Promise((resolve, reject) => {
-            rl.on('close', resolve);
-            rl.on('error', reject); // Handle errors during read stream
-            fileReadStream.on('error', reject); // Handle file stream errors
-        });
-
-        logger.info(`Finished initial processing of ${fileName}. Found ${Object.keys(allProducts).length} products.`);
-
-
-        // --- Database Update Logic ---
-        logger.info('Preparing database updates for Shopify products...');
-        const bulkOps = [];
-        const syncTimestamp = new Date();
-
-        for (const productId in allProducts) {
-            const shopifyProduct = allProducts[productId];
-
-            if (shopifyProduct.ignore === true) {
-                ignoreCount++;
-                continue; // Skip ignored products
-            }
-
-            if (shopifyProduct.ignore === "check sku") {
-                // TODO: Handle 'check sku' logic separately if needed
-                logger.warn(`Product "${shopifyProduct.title}" (${productId}) needs SKU check.`);
-                // For now, we'll skip updating these in the main sync
-                continue;
-            }
-
-            // Process variants for this product
-            for (const variant of shopifyProduct.variants) {
-                if (!variant.sku) {
-                    logger.warn(`Skipping variant without SKU for product "${shopifyProduct.title}" (${productId}), variant ID ${variant.id}`);
-                    continue; // Skip variants without SKUs
-                }
-
-                // Prepare the update operation for this variant's SKU
-                bulkOps.push({
-                    updateOne: {
-                        filter: { sku: variant.sku },
-                        update: {
-                            $set: {
-                                sku: variant.sku, // Ensure SKU is set
-                                name: shopifyProduct.title, // Use product title as base name
-                                // Update shopify_data subdocument
-                                'shopify_data.product_id': shopifyProduct.id,
-                                'shopify_data.variant_id': variant.id,
-                                'shopify_data.title': shopifyProduct.title, // Consider variant title if available
-                                'shopify_data.description': shopifyProduct.descriptionHtml,
-                                'shopify_data.price': parseFloat(variant.price || 0),
-                                'shopify_data.inventory_quantity': variant.inventoryQuantity, // Use variant quantity
-                                'shopify_data.tags': shopifyProduct.tags,
-                                'shopify_data.images': shopifyProduct.images.map(img => ({ url: img.url, alt: img.alt })), // Map images
-                                'shopify_data.handle': shopifyProduct.handle,
-                                'shopify_data.vendor': shopifyProduct.vendor,
-                                'shopify_data.product_type': shopifyProduct.productType,
-                                'shopify_data.status': shopifyProduct.status,
-                                'shopify_data.last_synced': syncTimestamp,
-                                // Update raw_shopify_data as a whole object to avoid issues with null parent
-                                raw_shopify_data: {
-                                    product: shopifyProduct, // Store processed product structure
-                                    variant: variant, // Store processed variant structure
-                                    last_raw_sync: syncTimestamp
-                                },
-                                last_updated: syncTimestamp
-                            },
-                            $setOnInsert: {
-                                // Set initial quantity_on_hand if this is a new product record
-                                // This might need refinement based on how you manage overall quantity
-                                quantity_on_hand: variant.inventoryQuantity || 0,
-                                quantity_committed: 0 // Default committed to 0
-                            }
-                        },
-                        upsert: true // Create product if SKU doesn't exist
-                    }
-                });
-            }
-        }
-
-        logger.info(`Prepared ${bulkOps.length} database update operations.`);
-        if (ignoreCount > 0) {
-             logger.info(`Ignored ${ignoreCount} products based on vendor or other criteria.`);
-        }
-
-        // Perform bulk update
-        if (bulkOps.length > 0) {
-            logger.info('Performing bulk write operation to database...');
-            try {
-                const result = await Product.bulkWrite(bulkOps);
-                logger.info('Database bulk write completed.', {
-                    upserted: result.upsertedCount,
-                    modified: result.modifiedCount,
-                    matched: result.matchedCount
-                });
-                 // Optionally add flash message for success
-                 if (req.flash) { // Check if flash is available (might not be in background task)
-                     req.flash('success', `Shopify sync complete: ${result.upsertedCount} new products/variants added, ${result.modifiedCount} updated.`);
-                 }
-            } catch (dbError) {
-                logger.error('Error during database bulk write:', dbError);
-                throw dbError; // Re-throw
-            }
+            status.progress = 95;
+            syncStatus.set(syncId, status);
         } else {
-            logger.info('No valid Shopify products found to update in the database.');
-             if (req.flash) {
-                 req.flash('info', 'Shopify sync ran, but no products needed updating in the database.');
+             logger.info('Skipping database update because no Shopify data was downloaded or processed.', { syncId });
+             // If we skipped download due to cache, we still need to mark as complete later
+             if (url !== 'local') {
+                 // If we didn't use local cache and didn't process, it implies an earlier error handled by throw
+                 // If we *did* use local cache, we fall through to cleanup/completion
              }
         }
 
         // --- Data File Cleanup ---
-        await cleanupDataFiles(directoryPath, filePrefix, 5); // Keep latest 5 files
+        logger.info('Cleaning up old data files...', { syncId });
+        status.currentPhase = 'Cleaning up';
+        syncStatus.set(syncId, status);
+        await cleanupDataFiles(directoryPath, filePrefix, 5);
 
-        logger.info('Shopify product sync process finished successfully.');
+        logger.info('Shopify product sync process finished successfully.', { syncId });
+        status.progress = 100;
+        status.complete = true;
+        status.currentPhase = 'Complete';
+        syncStatus.set(syncId, status);
+
+        // Record successful sync time ONLY if the operation didn't fail early
+        // Check if url is not null (meaning bulk op likely succeeded or we used cache)
+        if (url) {
+             await Settings.setSetting('lastShopifyProductSync', new Date().toISOString());
+        }
 
     } catch (error) {
-        logger.error('Error during Shopify product sync process:', error);
-         if (req.flash) {
-             req.flash('error', `Shopify sync failed: ${error.message}`);
-         }
-        // Re-throw or handle error appropriately for the calling context (e.g., return error response)
-        throw error; // Make sure the caller knows about the failure
+        // Main catch block for the entire function
+        logger.error('Error during Shopify product sync process:', { syncId, error: error.message, stack: error.stack });
+
+        // Update status with error details
+        const finalStatus = syncStatus.get(syncId); // Get potentially updated status
+        if (finalStatus) {
+            finalStatus.complete = true;
+            finalStatus.error = error.message || 'An unknown error occurred during Shopify sync.';
+            finalStatus.progress = 100; // Mark as complete even on error
+            syncStatus.set(syncId, finalStatus);
+        } else {
+            // This case should ideally not happen if initialization worked
+            logger.error(`Could not find status object for ${syncId} to report final error.`);
+        }
+
+        // No req.flash here as this runs in the background
+
+        // Ensure cleanup still runs if possible
+        try {
+            await cleanupDataFiles(directoryPath, filePrefix, 5);
+        } catch (cleanupErr) {
+            logger.error('Error during cleanup after sync failure:', { syncId, error: cleanupErr });
+        }
+    } finally {
+        const overallEndTime = performance.now();
+        logger.info(`[Perf] Overall syncShopifyProducts took ${(overallEndTime - overallStartTime).toFixed(2)}ms`, { syncId });
+        // Optional: Clean up status map entry after some time if needed, similar to Etsy sync status route
+        // setTimeout(() => { syncStatus.delete(syncId); }, 30 * 60 * 1000); // Example: 30 mins
     }
-
-
-    // TODO: Clean up data folder to remove old jsonl files. This should be some reasonable limit like 10 files or 100MB of data. - DONE
-
-    // Future improvement:
-    //      Check the products where ignore is set to "check sku" (checkSkuProducts) and see if there are any close matches to the Etsy products in the database.
-    //      If so, add them to the database with a note that they need to be checked and which Etsy product they are a match for.
-    //      Follow that up with a new landing page to show the products that need to be checked, what record they are a good match for, and a button to approve the link.
-    //      Future future improvement: add a way to find the correct product to link it to.
-    //      Eventually, if two products are linked but skus are different betweeen Shopify and Etsy, add a way to select which sku is correct (or manually enter a new one) and update the other store with the new sku.
 }
 
 // Sync orders from specified marketplace
@@ -1094,6 +1084,8 @@ router.get('/sync-orders', async (req, res) => {
 
 // Sync Etsy orders
 async function syncEtsyOrders(req, res) {
+    // TODO: Improve performance by using bulkWrite for order updates
+    // TODO: Only do full sync for orders since last sync (with some reasonable overlap to avoid missing orders). Do partial sync for everything else. Need to decide what's important for partial sync. Need to verify if this actually saves any time.
     const overallStartTime = performance.now();
     try {
         logger.info('Starting Etsy order sync');
@@ -1129,7 +1121,9 @@ async function syncEtsyOrders(req, res) {
                 throw new Error(`Failed to fetch Etsy orders: ${response.statusText}`);
             }
 
-            const data = await response.json();
+            // Use the helper to parse JSON
+            const data = await parseJsonResponse(response, url);
+
             const orders = data.results || [];
             allOrders.push(...orders);
 
@@ -1236,17 +1230,22 @@ async function syncEtsyOrders(req, res) {
 
         logger.info(`Successfully synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders`);
         req.flash('success', `Synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders.`);
+
+        // Record successful sync time in Settings
+        await Settings.setSetting('lastEtsyOrderSync', new Date().toISOString());
+
         // Check if res is available before redirecting
         if (res) {
-            res.redirect('/sync');
+            res.redirect('/sync'); // Redirect back to sync page
         }
 
     } catch (error) {
         logger.error('Error syncing Etsy orders:', { error: error.message, stack: error.stack }); // Log stack trace
         // Check if req and res are available before flashing/redirecting
         if (req && res) {
-            req.flash('error', 'Error syncing Etsy orders');
-            res.redirect('/sync');
+            // Include the specific error message in the flash notification
+            req.flash('error', `Error syncing Etsy orders: ${error.message}`);
+            res.redirect('/sync'); // Redirect back to sync page on error
         }
     } finally {
         const overallEndTime = performance.now();
@@ -1257,7 +1256,7 @@ async function syncEtsyOrders(req, res) {
 // Sync Shopify orders
 async function syncShopifyOrders(req, res) {
     const overallStartTime = performance.now();
-    try {
+    try { // Outer try for initial setup
         // Check for the correct environment variables
         if (!process.env.SHOPIFY_ACCESS_TOKEN || !process.env.SHOPIFY_SHOP_NAME) {
             req.flash('error', 'Shopify credentials are not configured. Please connect your Shopify account in settings.');
@@ -1266,7 +1265,7 @@ async function syncShopifyOrders(req, res) {
         
         logger.info('Starting Shopify order sync');
         
-        try {
+        try { // Inner try for the main sync logic and API calls
             // Use shopify-helpers to get the client instead of creating a new one
             const shopifyHelpers = require('../utils/shopify-helpers');
             const shopify = shopifyHelpers.getShopifyClient();
@@ -1449,17 +1448,23 @@ async function syncShopifyOrders(req, res) {
             const successMessage = `Successfully synced ${newOrderCount} new and ${updatedOrderCount} existing Shopify orders`;
             logger.info(successMessage);
             req.flash('success', successMessage);
-            res.redirect('/orders?marketplace=shopify');
+
+            // Record successful sync time in Settings
+            await Settings.setSetting('lastShopifyOrderSync', new Date().toISOString());
+
+            res.redirect('/sync'); // Redirect back to sync page
             
-        } catch (shopifyError) {
+        } catch (shopifyError) { // Catches errors during the Shopify API interaction/processing
             logger.error('Shopify API error during order sync:', { error: shopifyError.message });
+            // Include the specific error message in the flash notification
             req.flash('error', `Failed to sync Shopify orders: ${shopifyError.message}`);
-            res.redirect('/orders');
+            res.redirect('/sync'); // Redirect back to sync page on API error
         }
-    } catch (error) {
-        logger.error('Error in Shopify order sync:', { error: error.message });
-        req.flash('error', `Error syncing orders from Shopify: ${error.message}`);
-        res.redirect('/orders');
+    } catch (error) { // Catches errors from the outer try block (e.g., initial setup, client creation)
+        logger.error('Error in Shopify order sync setup:', { error: error.message });
+        // Include the specific error message in the flash notification
+        req.flash('error', `Error starting Shopify order sync: ${error.message}`);
+        res.redirect('/sync'); // Redirect back to sync page on setup error
     } finally {
         const overallEndTime = performance.now();
         logger.info(`[Perf] Overall syncShopifyOrders took ${(overallEndTime - overallStartTime).toFixed(2)}ms`);
@@ -1485,13 +1490,39 @@ router.get('/status/:syncId', (req, res) => {
     };
     
     console.log(`Status request for syncId ${syncId}:`, status);
+    // Add processedCount and totalCount for frontend progress display
+    status.processedCount = status.syncCount || 0;
+    // Try to provide a real totalCount for product syncs
+    if (status.counts && typeof status.counts === 'object') {
+        // For product sync, try to sum all product states
+        const total = Object.values(status.counts).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+        status.totalCount = total > 0 ? total : status.syncCount || 0;
+    } else {
+        status.totalCount = status.syncCount || 0;
+    }
+    // Always set processedCount and totalCount for frontend
+    status.processedCount = typeof status.syncCount === 'number' ? status.syncCount : 0;
+    if (status.counts && typeof status.counts === 'object') {
+        if ('added' in status.counts || 'updated' in status.counts) {
+            status.totalCount = 
+                (typeof status.counts.added === 'number' ? status.counts.added : 0) +
+                (typeof status.counts.updated === 'number' ? status.counts.updated : 0);
+        } else {
+            status.totalCount = Object.values(status.counts).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+        }
+        if (!status.totalCount || status.totalCount < status.processedCount) {
+            status.totalCount = status.processedCount;
+        }
+    } else {
+        status.totalCount = status.processedCount;
+    }
     res.json(status);
     
-    // Clean up old status objects after 30 minutes
+    // Clean up old status objects after 1 minutes
     if (status.complete) {
         setTimeout(() => {
             syncStatus.delete(syncId);
-        }, 30 * 60 * 1000);
+        }, 60 * 1000);
     }
 });
 

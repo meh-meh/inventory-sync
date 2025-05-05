@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>Inventory Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
+        /* Keep specific styles for this view */
         .stat-card { text-align: center; padding: 20px; }
         .stat-number { font-size: 24px; font-weight: bold; margin: 10px 0; }
         .stat-label { color: #666; }
@@ -15,18 +15,6 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-light bg-light">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="/">Inventory Manager</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="/inventory">Inventory</a>
-                <a class="nav-link" href="/orders">Orders</a>
-                <a class="nav-link" href="/sync">Sync</a>
-                <a class="nav-link" href="/settings">Settings</a>
-            </div>
-        </div>
-    </nav>
-
     <div class="container mt-4">
         {{#if needsAuthentication}}
             <!-- Authentication required view -->
@@ -49,21 +37,21 @@
                     <div class="card stat-card">
                         <div class="stat-label">Total Products</div>
                         <div class="stat-number">{{stats.totalProducts}}</div>
-                        <small>{{stats.productsWithEtsy}} on Etsy / {{stats.productsWithShopify}} on Shopify</small>
+                        <a href="/inventory" class="btn btn-sm btn-outline-secondary">View Inventory</a>
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="card stat-card">
                         <div class="stat-label">Unshipped Orders</div>
                         <div class="stat-number">{{stats.unshippedOrders}}</div>
-                        <small>{{stats.recentlyShipped}} shipped in last week</small>
+                        <a href="/orders" class="btn btn-sm btn-outline-secondary">View Orders</a>
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="card stat-card">
-                        <div class="stat-label">Low Stock Items</div>
-                        <div class="stat-number">{{stats.lowStockCount}}</div>
-                        <small>Below minimum threshold</small>
+                        <div class="stat-label">Items Low Stock</div>
+                        <div class="stat-number">{{stats.lowStockItems}}</div>
+                        <a href="/inventory?filter=low_stock" class="btn btn-sm btn-outline-warning">View Low Stock</a>
                     </div>
                 </div>
             </div>
@@ -71,69 +59,54 @@
             <div class="row mt-4">
                 <div class="col-md-6">
                     <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">Recent Orders</h5>
-                            <a href="/orders" class="btn btn-sm btn-primary">View All</a>
-                        </div>
-                        <div class="list-group list-group-flush">
+                        <div class="card-header">Recent Orders</div>
+                        <ul class="list-group list-group-flush">
                             {{#each recentOrders}}
-                            <div class="list-group-item">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h6 class="mb-1">Order #{{receipt_id}}</h6>
-                                    <small>{{formatDate order_date}}</small>
-                                </div>
-                                <p class="mb-1">{{etsy_order_data.name}}</p>
-                                <small>
-                                    {{#each items}}
-                                        {{quantity}}x {{sku}}{{#unless @last}}, {{/unless}}
-                                    {{/each}}
-                                </small>
-                            </div>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <a href="/orders/{{this.order_id}}">
+                                        {{#if (eq this.marketplace 'etsy')}}#{{this.receipt_id}}{{else}}#{{this.shopify_order_number}}{{/if}}
+                                    </a>
+                                    <span>{{formatDate this.order_date}}</span>
+                                    <span class="badge {{#if (eq this.status 'shipped')}}bg-success{{else}}bg-secondary{{/if}}">{{this.status}}</span>
+                                </li>
+                            {{else}}
+                                <li class="list-group-item text-muted">No recent orders found.</li>
                             {{/each}}
-                        </div>
+                        </ul>
                     </div>
                 </div>
-                
                 <div class="col-md-6">
                     <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">Low Stock Items</h5>
-                            <a href="/inventory" class="btn btn-sm btn-primary">View All</a>
-                        </div>
-                        <div class="list-group list-group-flush">
-                            {{#each lowStockItems}}
-                            <div class="list-group-item {{#if critical}}alert-low-stock{{/if}}">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h6 class="mb-1">{{name}}</h6>
-                                    <span class="badge bg-warning">{{quantity_available}} left</span>
-                                </div>
-                                <p class="mb-1">SKU: {{sku}}</p>
-                                <small>Location: {{location}}</small>
-                            </div>
-                            {{/each}}
+                        <div class="card-header">Sync Status</div>
+                        <div class="card-body">
+                            <p>Last Etsy Sync: {{formatDate syncStatus.lastEtsySync}}</p>
+                            <p>Last Shopify Sync: {{formatDate syncStatus.lastShopifySync}}</p>
+                            <a href="/sync" class="btn btn-primary">Go to Sync Page</a>
                         </div>
                     </div>
                 </div>
             </div>
 
+            {{#if lowStockProducts.length}}
             <div class="row mt-4">
-                <div class="col-md-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Quick Actions</h5>
-                        </div>
+                <div class="col-12">
+                    <div class="card alert-low-stock">
+                        <div class="card-header">Low Stock Items</div>
                         <div class="card-body">
-                            <a href="/inventory/add" class="btn btn-success me-2">Add New Product</a>
-                            <a href="/sync-etsy" class="btn btn-primary me-2">Sync Etsy</a>
-                            <a href="/sync-shopify" class="btn btn-primary me-2">Sync Shopify</a>
-                            <a href="/sync-orders" class="btn btn-info">Sync Orders</a>
+                            <ul class="list-group">
+                                {{#each lowStockProducts}}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <a href="/inventory/details/{{this.sku}}">{{this.name}} ({{this.sku}})</a>
+                                    <span class="badge bg-warning text-dark">Available: {{this.quantity_available}}</span>
+                                </li>
+                                {{/each}}
+                            </ul>
                         </div>
                     </div>
                 </div>
             </div>
+            {{/if}}
         {{/if}}
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

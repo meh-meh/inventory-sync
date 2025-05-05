@@ -1,10 +1,24 @@
 <!DOCTYPE html>
 <html>
 
+<head>
+    <title>Etsy Inventory</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</head>
+
 <body>
-<a href="https://www.etsy.com/oauth/connect?response_type=code&redirect_uri=http://localhost:3003/oauth/redirect&scope=shops_r%20email_r%20address_r%20transactions_r%20listings_r&client_id=l5ojoh90avxodqkuo38nf37z&state=un4qt7&code_challenge=xR_0X6wqs2VP4f2LHR9rSL6fj4KlJIVoWBgdzRwjxhk&code_challenge_method=S256">
-    Authenticate with Etsy
-</a>
+    <div class="container mt-4">
+        <p>If you are not redirected automatically, please use the main dashboard.</p>
+        <a href="/" class="btn btn-primary">Go to Dashboard</a>
+        {{!-- Original content commented out:
+        <a href="https://www.etsy.com/oauth/connect?response_type=code&redirect_uri=http://localhost:3003/oauth/redirect&scope=shops_r%20email_r%20address_r%20transactions_r%20listings_r&client_id=l5ojoh90avxodqkuo38nf37z&state=un4qt7&code_challenge=xR_0X6wqs2VP4f2LHR9rSL6fj4KlJIVoWBgdzRwjxhk&code_challenge_method=S256">
+            Authenticate with Etsy
+        </a>
+        --}}
+    </div>
 </body>
 
 </html>

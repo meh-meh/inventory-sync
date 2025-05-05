@@ -1,5 +1,5 @@
 const express = require('express');
-const hbs = require("hbs");
+const { engine } = require('express-handlebars');
 const dotenv = require("@dotenvx/dotenvx");
 const path = require('path');
 dotenv.config();
@@ -31,22 +31,25 @@ const authService = require('./utils/auth-service');
 // Database connection
 require('./config/database');
 
-// We don't need to initialize Shopify client directly here 
-// as we're using the shopify-helpers.js utility throughout the app
-
 // Create express application
 const app = express();
 
-// Setup handlebars view engine with layouts support
-app.set("view engine", "hbs");
-app.set("views", path.join(process.cwd(), "views"));
-hbs.registerPartials(path.join(process.cwd(), "views/layouts"));
-
-// Configure handlebars helpers
-configHandlebarsHelpers(hbs);
+// Setup express-handlebars view engine
+app.engine('hbs', engine({ 
+    extname: '.hbs', 
+    defaultLayout: 'main', // Specify the default layout file (main.hbs)
+    layoutsDir: path.join(process.cwd(), 'views/layouts'), // Directory for layout files
+    partialsDir: path.join(process.cwd(), 'views/partials'), // Optional: If you have other partials
+    helpers: configHandlebarsHelpers() // Pass helpers directly to the engine
+}));
+app.set('view engine', 'hbs');
+app.set('views', path.join(process.cwd(), 'views'));
 
 // Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Add this line to parse form data
+
+// Session middleware
 app.use(require('express-session')({
     secret: process.env.SESSION_SECRET || 'your-secret-key',
     resave: false,
@@ -72,24 +75,30 @@ app.get('/', async (req, res) => {
     try {
         const isAuthenticated = !authService.isTokenExpired();
         
-        // If not authenticated, still show the dashboard but with auth status
         const dashboardData = isAuthenticated ? 
             await fetchDashboardData() : 
             { needsAuthentication: true };
             
         res.render('dashboard', {
             ...dashboardData,
-            isAuthenticated
+            isAuthenticated,
+            activePage: 'dashboard' // Keep activePage
+            // No need to specify layout: 'main' if it's the default
         });
     } catch (error) {
-        console.error('Error loading dashboard:', error);
-        res.status(500).send('Error loading dashboard');
+        logger.error('Error loading dashboard:', error); // Use logger
+        req.flash('error', 'Error loading dashboard');
+        res.redirect('/welcome'); // Redirect somewhere safer on error
     }
 });
 
 // Login/welcome page
 app.get('/welcome', (req, res) => {
-    res.render("welcome");
+    // Assuming welcome isn't a main nav item, pass null or omit activePage
+    res.render("welcome", { 
+        first_name: req.query.first_name // Example: pass data if needed
+        // activePage: null // Or omit entirely
+    }); 
 });
 
 // Legacy index route, redirect to dashboard
@@ -136,18 +145,18 @@ async function fetchDashboardData() {
         unshippedOrders,
         recentlyShipped,
         lowStockItems,
-        recentOrders
+        recentOrdersDocs // Rename to indicate they are Mongoose docs initially
     ] = await Promise.all([
         Product.countDocuments(),
         Product.countDocuments({ 'etsy_data.listing_id': { $exists: true } }),
-        Product.countDocuments({ 'shopify_data.listing_id': { $exists: true } }),
+        Product.countDocuments({ 'shopify_data.listing_id': { $exists: true } }), // Corrected field name
         Order.countDocuments({ 
-            etsy_is_shipped: false,
-            items: { $elemMatch: { is_digital: false } },
-            'etsy_order_data.status': { $ne: 'Canceled' }
+            status: 'unshipped', // Use the unified status field
+            items: { $elemMatch: { is_digital: false } }
+            // Removed Etsy-specific fields, rely on the unified status
         }),
         Order.countDocuments({
-            etsy_is_shipped: true,
+            status: 'shipped', // Use the unified status field
             items: { $elemMatch: { is_digital: false } },
             shipped_date: { 
                 $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
@@ -163,11 +172,13 @@ async function fetchDashboardData() {
             }
         }).limit(10),
         Order.find({ 
-            etsy_is_shipped: false,
-            'etsy_order_data.status': { $ne: 'Canceled' }
+            status: 'unshipped', // Use the unified status field
+            items: { $elemMatch: { is_digital: false } }
+            // Removed Etsy-specific fields
         })
         .sort({ order_date: -1 })
         .limit(5)
+        // No .lean() here initially
     ]);
 
     const stats = {
@@ -183,18 +194,50 @@ async function fetchDashboardData() {
     const lowStockWithStatus = lowStockItems.map(item => {
         const availableQuantity = (item.quantity_on_hand || 0) - (item.quantity_committed || 0);
         return {
-            ...item.toObject(),
+            ...item.toObject(), // Convert product doc to plain object
             quantity_available: availableQuantity,
             critical: availableQuantity < 2
         };
     });
 
+    // Convert recentOrdersDocs to plain objects, including virtuals
+    const recentOrders = recentOrdersDocs.map(order => order.toObject({ virtuals: true }));
+
     return {
         stats,
         lowStockItems: lowStockWithStatus,
-        recentOrders
+        recentOrders // Pass the array of plain objects
     };
 }
+
+// Error Handling Middleware
+// Add 'next' to the signature for Express to recognize it as an error handler
+app.use((err, req, res, next) => { 
+    logger.error('Unhandled error:', { 
+        message: err.message, 
+        stack: err.stack, 
+        url: req.originalUrl, 
+        method: req.method 
+    });
+    // Ensure req.flash exists before calling it, just in case
+    if (req.flash) {
+        req.flash('error', 'An unexpected error occurred. Please try again or contact support.');
+    } else {
+        // Fallback if flash isn't available for some reason
+        logger.error('req.flash is not available in error handler');
+        // You might store the error message in the session differently or log it
+    }
+    const status = err.status || 500;
+    res.status(status);
+    
+    res.render('error', { 
+        message: err.message,
+        // Only provide detailed error in development
+        error: process.env.NODE_ENV === 'development' ? err : {},
+        layout: 'main' // Explicitly use main layout, or set to false if no layout desired for errors
+    }); 
+    // Note: We don't call next() here because we are sending the response.
+});
 
 module.exports = app;
 

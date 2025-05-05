@@ -9,87 +9,55 @@ router.get('/:id', async (req, res) => {
     try {
         // First try to find by order_id (new schema)
         const idParam = req.params.id;
-        let order = await Order.findOne({ order_id: idParam });
+        let order = await Order.findOne({ order_id: idParam }).lean({ virtuals: true });
         
         // If not found, try to find by receipt_id (old Etsy schema)
         if (!order) {
-            order = await Order.findOne({ receipt_id: idParam });
+            order = await Order.findOne({ receipt_id: idParam }).lean({ virtuals: true });
         }
         
         // If still not found, try to find by Shopify order number
         if (!order) {
-            order = await Order.findOne({ shopify_order_number: idParam });
+            order = await Order.findOne({ shopify_order_number: idParam }).lean({ virtuals: true });
         }
-        
+
         if (!order) {
             req.flash('error', 'Order not found');
-            return res.redirect('/orders');
+            // Preserve filter on redirect
+            const redirectUrl = req.query.marketplace ? `/orders?marketplace=${req.query.marketplace}` : '/orders';
+            return res.redirect(redirectUrl);
         }
-        
-        res.render('order-details', { order });
+
+        res.render('order-details', { 
+            order,
+            activeMarketplace: req.query.marketplace || 'all',
+            activePage: 'orders' // Add activePage
+        });
     } catch (error) {
         console.error('Error fetching order details:', error);
         req.flash('error', 'Error loading order details');
-        res.redirect('/orders');
+        // Redirect back to the orders list, preserving the filter if possible
+        const redirectUrl = req.query.marketplace ? `/orders?marketplace=${req.query.marketplace}` : '/orders';
+        res.redirect(redirectUrl);
     }
 });
 
 router.get('/', async (req, res) => {
     try {
         const marketplace = req.query.marketplace || 'all';
-        const threeWeeksAgo = new Date();
-        threeWeeksAgo.setDate(threeWeeksAgo.getDate() - 21);
-        
-        // Build base queries with marketplace filter
-        let marketplaceFilter = {};
+
+        // Define base queries
+        let unshippedQuery = { status: 'unshipped', items: { $exists: true, $ne: [] }, 'items.is_digital': false };
+        let shippedQuery = { status: 'shipped', items: { $exists: true, $ne: [] }, 'items.is_digital': false };
+        let cancelledQuery = {}; // Defined below based on marketplace
+
+        // Adjust queries based on marketplace filter
         if (marketplace === 'etsy') {
-            // Include orders explicitly marked as etsy OR that have etsy-specific fields
-            marketplaceFilter = {
-                $or: [
-                    { marketplace: 'etsy' },
-                    { 
-                        receipt_id: { $exists: true, $ne: null },
-                        marketplace: { $exists: false }  // Orders without marketplace field
-                    }
-                ]
-            };
-        } else if (marketplace === 'shopify') {
-            // Include orders explicitly marked as shopify OR that have shopify-specific fields
-            marketplaceFilter = {
-                $or: [
-                    { marketplace: 'shopify' },
-                    {
-                        shopify_order_number: { $exists: true, $ne: null },
-                        marketplace: { $exists: false }  // Orders without marketplace field
-                    }
-                ]
-            };
-        }
-        
-        // Queries for each order category
-        let unshippedQuery = {
-            ...marketplaceFilter,
-            status: 'unshipped',
-            items: { $exists: true, $ne: [] },
-            'items.is_digital': false
-        };
-        
-        let shippedQuery = {
-            ...marketplaceFilter,
-            status: 'shipped',
-            items: { $exists: true, $ne: [] },
-            'items.is_digital': false,
-            shipped_date: { 
-                $gte: threeWeeksAgo,
-                $ne: null 
-            }
-        };
-        
-        let cancelledQuery = {};
-        if (marketplace === 'etsy') {
+            unshippedQuery.$or = [{ marketplace: 'etsy' }, { receipt_id: { $exists: true, $ne: null }, marketplace: { $exists: false } }];
+            shippedQuery.$or = [{ marketplace: 'etsy' }, { receipt_id: { $exists: true, $ne: null }, marketplace: { $exists: false } }];
             cancelledQuery = {
                 $or: [
-                    { 
+                    {
                         marketplace: 'etsy',
                         'etsy_order_data.status': 'Canceled'
                     },
@@ -103,6 +71,8 @@ router.get('/', async (req, res) => {
                 'items.is_digital': false
             };
         } else if (marketplace === 'shopify') {
+            unshippedQuery.$or = [{ marketplace: 'shopify' }, { shopify_order_number: { $exists: true, $ne: null }, marketplace: { $exists: false } }];
+            shippedQuery.$or = [{ marketplace: 'shopify' }, { shopify_order_number: { $exists: true, $ne: null }, marketplace: { $exists: false } }];
             cancelledQuery = {
                 $or: [
                     {
@@ -119,7 +89,7 @@ router.get('/', async (req, res) => {
                 'items.is_digital': false
             };
         } else {
-            // All marketplaces
+            // All marketplaces - cancelledQuery needs both Etsy and Shopify conditions
             cancelledQuery = {
                 $or: [
                     { 
@@ -146,81 +116,30 @@ router.get('/', async (req, res) => {
             };
         }
 
-        // Update how we count orders by marketplace to include those without marketplace field
-        const etsyFilter = {
-            $or: [
-                { marketplace: 'etsy' },
-                { 
-                    receipt_id: { $exists: true, $ne: null },
-                    marketplace: { $exists: false }
-                }
-            ]
-        };
-        
-        const shopifyFilter = {
-            $or: [
-                { marketplace: 'shopify' },
-                {
-                    shopify_order_number: { $exists: true, $ne: null }, 
-                    marketplace: { $exists: false }
-                }
-            ]
-        };
-
-        const [unshippedOrders, recentShippedOrders, cancelledOrders, etsyCount, shopifyCount, totalCount] = await Promise.all([
-            // Unshipped orders
-            Order.aggregate([
-                { $match: unshippedQuery },
-                { $sort: { order_date: -1 } }
-            ]),
-            
-            // Recently shipped orders
-            Order.aggregate([
-                { $match: shippedQuery },
-                { $sort: { shipped_date: -1 } }
-            ]),
-            
-            // Cancelled orders
-            Order.aggregate([
-                { $match: cancelledQuery },
-                { $sort: { order_date: -1 } }
-            ]),
-            
-            // Count for Etsy orders (including those without explicit marketplace)
-            Order.countDocuments(etsyFilter),
-            
-            // Count for Shopify orders (including those without explicit marketplace)
-            Order.countDocuments(shopifyFilter),
-            
-            // Total count
-            Order.countDocuments()
+        // Fetch orders and counts
+        const [unshippedOrders, recentShippedOrders, cancelledOrders, totalEtsyCount, totalShopifyCount] = await Promise.all([
+            Order.find(unshippedQuery).sort({ order_date: -1 }).lean({ virtuals: true }),
+            Order.find(shippedQuery).sort({ shipped_date: -1 }).limit(50).lean({ virtuals: true }), // Limit recent shipped
+            Order.find(cancelledQuery).sort({ order_date: -1 }).limit(50).lean({ virtuals: true }), // Limit recent cancelled
+            Order.countDocuments({ $or: [{ marketplace: 'etsy' }, { receipt_id: { $exists: true, $ne: null }, marketplace: { $exists: false } }] }),
+            Order.countDocuments({ $or: [{ marketplace: 'shopify' }, { shopify_order_number: { $exists: true, $ne: null }, marketplace: { $exists: false } }] })
         ]);
 
-        // Before returning orders, add missing marketplace field based on order properties
-        const processOrdersWithMissingMarketplace = (orders) => {
-            return orders.map(order => {
-                if (!order.marketplace) {
-                    if (order.receipt_id) {
-                        order.marketplace = 'etsy';
-                    } else if (order.shopify_order_number) {
-                        order.marketplace = 'shopify';
-                    }
-                }
-                return order;
-            });
+        // Construct counts object for the view
+        const counts = {
+            etsy: totalEtsyCount,
+            shopify: totalShopifyCount,
+            total: totalEtsyCount + totalShopifyCount
         };
-
-        res.render('orders', { 
-            unshippedOrders: processOrdersWithMissingMarketplace(unshippedOrders), 
-            recentShippedOrders: processOrdersWithMissingMarketplace(recentShippedOrders),
-            cancelledOrders: processOrdersWithMissingMarketplace(cancelledOrders),
-            syncStatus: req.query.synced,
-            counts: {
-                etsy: etsyCount,
-                shopify: shopifyCount,
-                total: totalCount
-            },
-            activeMarketplace: marketplace
+        
+        res.render('orders', {
+            unshippedOrders,
+            recentShippedOrders,
+            cancelledOrders,
+            counts, // Pass the counts object
+            activeMarketplace: marketplace,
+            syncStatus: req.query.syncStatus, // Pass sync status from query param
+            activePage: 'orders' // Add activePage
         });
     } catch (error) {
         console.error('Error fetching orders:', error);

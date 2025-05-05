@@ -1,8 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Welcome!</title>
+        <!-- No extra styles needed, inherits from main.hbs -->
+    </head>
     <body>
-        <h1>Welcome, {{first_name}}!</h1>
+        <!-- Navbar and flash messages are now in main.hbs -->
 
-        <p>You can now use this example application. 🎉</p>
+        <div class="container mt-4 text-center">
+            <h1>Welcome, {{first_name}}!</h1>
+            <p class="lead">You have successfully connected your Etsy account.</p>
+            <p>You can now manage your inventory, view orders, and sync data across platforms.</p>
+            <div class="mt-4">
+                <a href="/inventory" class="btn btn-primary me-2">Go to Inventory</a>
+                <a href="/" class="btn btn-secondary">Go to Dashboard</a>
+            </div>
+        </div>
     </body>
 </html>

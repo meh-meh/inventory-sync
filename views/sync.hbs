@@ -5,6 +5,7 @@
     <title>Sync Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
+        /* Keep specific styles for this view */
         .sync-card { margin-bottom: 20px; }
         .marketplace-icon { font-size: 2em; margin-bottom: 10px; }
         .sync-stats { font-size: 0.9em; color: #666; }
@@ -13,111 +14,88 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-light bg-light">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="/">Etsy Inventory</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="/inventory">Inventory</a>
-                <a class="nav-link" href="/orders">Orders</a>
-                <a class="nav-link active" href="/sync">Sync</a>
-                <a class="nav-link" href="/settings">Settings</a>
-            </div>
-        </div>
-    </nav>
-
     <div class="container mt-4">
-        {{#if flashMessages.success}}
-        <div class="alert alert-success alert-dismissible fade show" role="alert">
-            {{flashMessages.success}}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-        {{/if}}
-        
-        {{#if flashMessages.error}}
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            {{flashMessages.error}}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-        {{/if}}
+        <h2>Sync Dashboard</h2>
         
         <!-- Live sync status reporting area -->
         <div id="syncStatusArea" class="alert alert-secondary mb-4">
-            <h5 id="syncTitle">Syncing Products...</h5>
+            <h5 id="syncTitle">Syncing...</h5>
             <div id="syncDetails">
-                <div class="mb-2">Products processed: <span id="syncCount" class="count-value">0</span></div>
-                <div class="d-flex flex-wrap gap-3">
-                    <div>Active: <span id="activeCount" class="count-value">0</span></div>
-                    <div>Draft: <span id="draftCount" class="count-value">0</span></div>
-                    <div>Expired: <span id="expiredCount" class="count-value">0</span></div>
-                    <div>Inactive: <span id="inactiveCount" class="count-value">0</span></div>
-                    <div>Sold Out: <span id="soldOutCount" class="count-value">0</span></div>
-                </div>
-                <div class="mt-2">
-                    Removed products: <span id="removedCount" class="count-value">0</span>
-                </div>
+                <!-- Details populated by JS -->
             </div>
-            <div class="progress mt-3">
-                <div id="syncProgress" class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
-                     role="progressbar" style="width: 0%"></div>
+            <div class="progress mt-2">
+                <div id="syncProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
             </div>
-        </div>
-        
-        <h2>Marketplace Synchronization</h2>
-        
-        <div class="row mt-4">
-            <div class="col-md-6">
-                <div class="card sync-card">
-                    <div class="card-body text-center">
-                        <div class="marketplace-icon">🏪</div>
-                        <h3>Etsy</h3>
-                        <div class="sync-stats mb-3">
-                            <div>Products: {{stats.productsWithEtsy}}</div>
-                            <div>Last Sync: {{formatDate stats.lastEtsySync}}</div>
-                        </div>
-                        <div class="d-grid gap-2">
-                            <a href="/sync/sync-etsy" class="btn btn-primary">Sync Etsy Products</a>
-                            <a href="/sync/sync-orders?marketplace=etsy" class="btn btn-outline-primary">Sync Etsy Orders</a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-6">
-                <div class="card sync-card">
-                    <div class="card-body text-center">
-                        <div class="marketplace-icon">🛍️</div>
-                        <h3>Shopify</h3>
-                        <div class="sync-stats mb-3">
-                            <div>Products: {{stats.productsWithShopify}}</div>
-                            <div>Last Sync: {{formatDate stats.lastShopifySync}}</div>
-                        </div>
-                        <div class="d-grid gap-2">
-                            <a href="/sync/sync-shopify" class="btn btn-success">Sync Shopify Products</a>
-                            <a href="/sync/sync-orders?marketplace=shopify" class="btn btn-outline-success">Sync Shopify Orders</a>
-                        </div>
-                    </div>
-                </div>
+            <div id="syncLog" class="mt-2" style="max-height: 200px; overflow-y: auto; font-size: 0.8em; background-color: #f8f9fa; padding: 10px; border-radius: 4px;">
+                <!-- Log messages populated by JS -->
             </div>
         </div>
 
-        <div class="row mt-4">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-body">
-                        <h4>Sync Status</h4>
-                        <p>Total Products in Inventory: {{stats.totalProducts}}</p>
-                        <div class="progress mb-3">
-                            <div class="progress-bar bg-primary" role="progressbar" 
-                                style="width: {{multiply (divide stats.productsWithEtsy stats.totalProducts) 100}}%" 
-                                title="Products on Etsy">
-                                Etsy ({{stats.productsWithEtsy}})
-                            </div>
-                            <div class="progress-bar bg-success" role="progressbar" 
-                                style="width: {{multiply (divide stats.productsWithShopify stats.totalProducts) 100}}%" 
-                                title="Products on Shopify">
-                                Shopify ({{stats.productsWithShopify}})
-                            </div>
+        <div class="row">
+            <!-- Sync Products Card -->
+            <div class="col-md-6">
+                <div class="card sync-card">
+                    <div class="card-body text-center">
+                        <i class="bi bi-box-seam marketplace-icon"></i>
+                        <h5 class="card-title">Sync Products</h5>
+                        <p class="card-text">Update product listings and details between Etsy, Shopify, and local database.</p>
+                        <div class="btn-group">
+                            <button id="syncEtsyProductsBtn" class="btn btn-primary">Sync Etsy Products</button>
+                            <button id="syncShopifyProductsBtn" class="btn btn-success">Sync Shopify Products</button>
                         </div>
+                        <div class="sync-stats mt-2">
+                            {{!-- Use the variables passed directly from the route --}}
+                            Last Etsy Sync: {{lastEtsyProductSync}} <br>
+                            Last Shopify Sync: {{lastShopifyProductSync}}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sync Inventory Card -->
+            <div class="col-md-6">
+                <div class="card sync-card">
+                    <div class="card-body text-center">
+                        <i class="bi bi-clipboard-check marketplace-icon"></i>
+                        <h5 class="card-title">Sync Inventory Levels</h5>
+                        <p class="card-text">Synchronize stock quantities across all connected platforms based on local data.</p>
+                        <button id="syncInventoryBtn" class="btn btn-warning">Sync All Inventory</button>
+                        <div class="sync-stats mt-2">
+                            Last Inventory Sync: {{formatDate stats.lastInventorySync}}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sync Orders Card -->
+            <div class="col-md-6">
+                <div class="card sync-card">
+                    <div class="card-body text-center">
+                        <i class="bi bi-receipt marketplace-icon"></i>
+                        <h5 class="card-title">Sync Orders</h5>
+                        <p class="card-text">Fetch new orders from Etsy and Shopify.</p>
+                        <div class="btn-group">
+                            <a href="/sync/sync-orders?marketplace=etsy" class="btn btn-outline-primary">Sync Etsy Orders</a>
+                            <a href="/sync/sync-orders?marketplace=shopify" class="btn btn-outline-success">Sync Shopify Orders</a>
+                        </div>
+                         <div class="sync-stats mt-2">
+                            {{!-- Use the variables passed directly from the route --}}
+                            Last Etsy Order Sync: {{lastEtsyOrderSync}} <br>
+                            Last Shopify Order Sync: {{lastShopifyOrderSync}}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Other Sync Actions (Optional) -->
+            <div class="col-md-6">
+                <div class="card sync-card">
+                    <div class="card-body text-center">
+                        <i class="bi bi-gear marketplace-icon"></i>
+                        <h5 class="card-title">Other Actions</h5>
+                        <p class="card-text">Perform specific maintenance or sync tasks.</p>
+                        <button id="reconcileBtn" class="btn btn-secondary">Reconcile Data</button>
+                        <!-- Add more buttons as needed -->
                     </div>
                 </div>
             </div>
@@ -133,17 +111,28 @@
         let syncCheckInterval = null;
         
         // Function to start monitoring a sync process
-        function startSyncMonitor(syncId, marketplace) {
-            console.log(`Starting to monitor sync process ${syncId} for ${marketplace}`);
+        function startSyncMonitor(syncId) { // Added syncType
+            const marketplace = syncId.split('-')[0]; // Extract marketplace from syncId
+            const syncType = syncId.split('-')[1]; // Extract sync type from syncId
+
+            console.log(`Starting to monitor sync process ${syncId} for ${marketplace} ${syncType}`);
             const statusArea = document.getElementById('syncStatusArea');
             const syncTitle = document.getElementById('syncTitle');
+            const syncDetails = document.getElementById('syncDetails');
+            const progressBar = document.getElementById('syncProgressBar');
+            const syncLog = document.getElementById('syncLog');
             
-            // Set the title based on marketplace
-            syncTitle.textContent = `Syncing ${marketplace} Products...`;
+            // Reset UI elements
+            syncTitle.textContent = `Syncing ${marketplace} ${syncType}...`;
+            syncDetails.innerHTML = ''; // Clear previous details
+            syncLog.innerHTML = ''; // Clear previous logs
+            progressBar.style.width = '0%';
+            progressBar.setAttribute('aria-valuenow', '0');
+            progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated'; // Reset progress bar style
             
             // Show the status area
             statusArea.style.display = 'block';
-            statusArea.className = 'alert alert-secondary mb-4';
+            statusArea.className = 'alert alert-info mb-4'; // Use info style while syncing
             
             // Store the sync ID
             currentSyncId = syncId;
@@ -154,8 +143,8 @@
             }
             
             // Start polling for updates
-            updateSyncStatus();
-            syncCheckInterval = setInterval(updateSyncStatus, 2000);
+            updateSyncStatus(); // Initial call
+            syncCheckInterval = setInterval(updateSyncStatus, 1000); // Poll every 1 second
         }
         
         // Function to update the sync status display
@@ -166,47 +155,78 @@
                 console.log(`Polling for sync status: ${currentSyncId}`);
                 const response = await fetch(`/sync/status/${currentSyncId}`);
                 if (!response.ok) {
+                    // Handle cases where the sync process might have ended abruptly
+                    if (response.status === 404) {
+                        console.warn(`Sync process ${currentSyncId} not found. Assuming complete or error.`);
+                        clearInterval(syncCheckInterval);
+                        syncCheckInterval = null;
+                        // Optionally update UI to reflect unknown status or potential error
+                        const statusArea = document.getElementById('syncStatusArea');
+                        statusArea.className = 'alert alert-warning mb-4';
+                        document.getElementById('syncTitle').textContent = 'Sync Status Unknown';
+                        return;
+                    }
                     throw new Error(`Failed to fetch sync status: ${response.status} ${response.statusText}`);
                 }
                 
                 const data = await response.json();
                 console.log('Received sync status:', data);
                 
-                // Update the counts
-                document.getElementById('syncCount').textContent = data.syncCount || 0;
-                document.getElementById('activeCount').textContent = data.counts?.active || 0;
-                document.getElementById('draftCount').textContent = data.counts?.draft || 0;
-                document.getElementById('expiredCount').textContent = data.counts?.expired || 0;
-                document.getElementById('inactiveCount').textContent = data.counts?.inactive || 0;
-                document.getElementById('soldOutCount').textContent = data.counts?.sold_out || 0;
-                document.getElementById('removedCount').textContent = data.removedCount || 0;
+                const progressBar = document.getElementById('syncProgressBar');
+                const syncDetails = document.getElementById('syncDetails');
+                const syncLog = document.getElementById('syncLog');
+                const syncTitle = document.getElementById('syncTitle');
+                const statusArea = document.getElementById('syncStatusArea');
+
+                // Update details and log
+                syncDetails.innerHTML = `Phase: ${data.currentPhase || 'Starting...'}<br>Processed: ${data.processedCount || 0}`;
+                if (data.log && syncLog.lastChild?.textContent !== data.log[data.log.length - 1]) {
+                    syncLog.innerHTML = data.log.map(entry => `<div>${entry}</div>`).join('');
+                    syncLog.scrollTop = syncLog.scrollHeight; // Scroll to bottom
+                }
+                // Hide syncLog if empty, show if not
+                if (!syncLog.innerHTML.trim()) {
+                    syncLog.style.display = 'none';
+                } else {
+                    syncLog.style.display = 'block';
+                }
                 
                 // Update progress bar
-                const progressBar = document.getElementById('syncProgress');
-                progressBar.style.width = `${data.progress || 0}%`;
+                if (data.complete) {
+                    progressBar.style.width = '100%';
+                    progressBar.setAttribute('aria-valuenow', 100);
+                } else {
+                    progressBar.style.width = `${data.progress || 0}%`;
+                    progressBar.setAttribute('aria-valuenow', data.progress || 0);
+                }
                 
                 // If sync is complete, update display
                 if (data.complete) {
                     clearInterval(syncCheckInterval);
                     syncCheckInterval = null;
+                    currentSyncId = null; // Clear current sync ID
+                    localStorage.removeItem('currentSyncId'); // Clear syncId from localStorage
                     
-                    // Update status area appearance based on success/error
-                    const statusArea = document.getElementById('syncStatusArea');
+                    progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                    
                     if (data.error) {
                         statusArea.className = 'alert alert-danger mb-4';
-                        document.getElementById('syncTitle').textContent = 'Sync Error';
-                        progressBar.className = 'progress-bar bg-danger';
+                        syncTitle.textContent = `Sync Error: ${data.error}`; 
+                        progressBar.classList.add('bg-danger');
                     } else {
                         statusArea.className = 'alert alert-success mb-4';
-                        document.getElementById('syncTitle').textContent = 'Sync Complete';
-                        progressBar.className = 'progress-bar bg-success';
+                        syncTitle.textContent = 'Sync Complete';
+                        progressBar.classList.add('bg-success');
+                        // Optionally reload the page slightly later to show updated sync times
+                        // setTimeout(() => window.location.reload(), 2000);
                     }
-                    
-                    // Stop the animation and remove striping for completed state
-                    progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated', 'bg-info');
                 }
             } catch (error) {
                 console.error('Error checking sync status:', error);
+                // Optionally stop polling on error
+                // clearInterval(syncCheckInterval);
+                // syncCheckInterval = null;
+                // Update UI to show error fetching status
             }
         }
         
@@ -217,7 +237,7 @@
             
             if (syncId) {
                 console.log(`Found syncId in URL: ${syncId}`);
-                startSyncMonitor(syncId, 'Etsy');
+                startSyncMonitor(syncId);
                 
                 // Clear the syncId from the URL to prevent auto-starting on refresh
                 if (history.pushState) {
@@ -229,50 +249,104 @@
             }
         }
         
-        // Immediately redirect to the sync page with the status section
-        function startEtsySync() {
-            // Generate a unique sync ID
-            const syncId = Date.now().toString();
-            console.log(`Starting Etsy sync with ID: ${syncId}`);
+        // Function to initiate a sync process
+        function startSync(marketplace, syncType = 'Products') {
+            const syncId = `${marketplace}-${syncType}-${Date.now()}`;
+            localStorage.setItem('currentSyncId', syncId); // Save syncId
+            console.log(`Starting ${marketplace} ${syncType} sync with ID: ${syncId}`);
             
-            // Start monitoring the sync
-            startSyncMonitor(syncId, 'Etsy');
+            // Start monitoring the sync immediately
+            startSyncMonitor(syncId);
             
-            // Fetch to start sync but don't navigate away
-            fetch(`/sync/sync-etsy?syncId=${syncId}`)
+            let syncUrl;
+            if (syncType === 'Products') {
+                syncUrl = `/sync/sync-${marketplace.toLowerCase()}?syncId=${syncId}`;
+            } else if (syncType === 'Orders') {
+                // Orders sync currently uses redirects, not background tasks with status
+                // For now, just navigate for orders
+                window.location.href = `/sync/sync-orders?marketplace=${marketplace.toLowerCase()}`;
+                return; // Exit early for orders
+            }
+            // Add other sync types here if needed
+
+            if (!syncUrl) {
+                console.error('Invalid sync type for background task:', syncType);
+                alert('Invalid sync type');
+                return;
+            }
+
+            // Fetch to start the background sync process
+            fetch(syncUrl)
                 .then(response => {
                     if (!response.ok) {
-                        throw new Error(`Failed to start sync: ${response.status} ${response.statusText}`);
+                        // Attempt to read error message if available
+                        return response.text().then(text => {
+                            throw new Error(`Failed to start sync: ${response.status} ${response.statusText} - ${text}`);
+                        });
                     }
-                    console.log('Sync started successfully');
+                    console.log(`${marketplace} ${syncType} sync started successfully via fetch.`);
+                    // No need to do anything else, the monitor will handle updates
                 })
                 .catch(error => {
-                    console.error('Error starting sync:', error);
-                    alert('Error starting sync: ' + error.message);
+                    console.error(`Error starting ${marketplace} ${syncType} sync:`, error);
+                    alert(`Error starting sync: ${error.message}`);
+                    // Update UI to show the error
+                    const statusArea = document.getElementById('syncStatusArea');
+                    const syncTitle = document.getElementById('syncTitle');
+                    statusArea.className = 'alert alert-danger mb-4';
+                    syncTitle.textContent = `Failed to start sync: ${error.message}`;
+                    if (syncCheckInterval) clearInterval(syncCheckInterval);
+                    syncCheckInterval = null;
+                    currentSyncId = null;
                 });
-                
-            // Prevent default navigation
-            return false;
         }
         
         // Attach event listeners to sync buttons
         document.addEventListener('DOMContentLoaded', function() {
             console.log('DOM loaded, setting up event listeners');
             
-            // Check for syncId in URL when page loads
-            checkUrlForSyncId();
+            // Check for syncId in URL (if needed for resuming monitoring)
+            // checkUrlForSyncId(); 
             
-            const etsySyncBtn = document.querySelector('a[href="/sync/sync-etsy"]');
-            if (etsySyncBtn) {
-                console.log('Found Etsy sync button, attaching event listener');
-                etsySyncBtn.addEventListener('click', function(e) {
-                    console.log('Etsy sync button clicked');
-                    e.preventDefault();
-                    startEtsySync();
-                });
-            } else {
-                console.warn('Etsy sync button not found');
+            const savedSyncId = localStorage.getItem('currentSyncId');
+            if (savedSyncId) {
+                startSyncMonitor(savedSyncId);
             }
+
+            const etsyProductsBtn = document.getElementById('syncEtsyProductsBtn');
+            const shopifyProductsBtn = document.getElementById('syncShopifyProductsBtn');
+            const etsyOrdersLink = document.querySelector('a[href="/sync/sync-orders?marketplace=etsy"]');
+            const shopifyOrdersLink = document.querySelector('a[href="/sync/sync-orders?marketplace=shopify"]');
+
+            if (etsyProductsBtn) {
+                console.log('Found Etsy products button, attaching listener');
+                etsyProductsBtn.addEventListener('click', () => startSync('Etsy', 'Products'));
+            } else {
+                console.warn('Etsy products button (#syncEtsyProductsBtn) not found');
+            }
+
+            if (shopifyProductsBtn) {
+                console.log('Found Shopify products button, attaching listener');
+                // NOTE: This assumes /sync/sync-shopify is updated to run in the background like Etsy
+                // If it still runs synchronously and redirects, this JS needs adjustment.
+                shopifyProductsBtn.addEventListener('click', () => startSync('Shopify', 'Products'));
+            } else {
+                console.warn('Shopify products button (#syncShopifyProductsBtn) not found');
+            }
+
+            // Keep standard navigation for Order sync links for now
+            // If you want background order sync, these would need similar handling
+            if (etsyOrdersLink) {
+                console.log('Found Etsy orders link');
+            } else {
+                console.warn('Etsy orders link not found');
+            }
+            if (shopifyOrdersLink) {
+                console.log('Found Shopify orders link');
+            } else {
+                console.warn('Shopify orders link not found');
+            }
+
         });
     </script>
 </body>

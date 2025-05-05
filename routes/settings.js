@@ -9,6 +9,23 @@ const upload = multer();
 const shopifyHelpers = require('../utils/shopify-helpers'); // Import shopify-helpers
 const { logger } = require('../utils/logger'); // Import logger
 
+// Helper function to safely parse numbers from env strings
+function safeParseInt(value, defaultValue) {
+    if (value === undefined || value === null || value === 'undefined') {
+        return defaultValue;
+    }
+    const parsed = parseInt(value, 10);
+    return isNaN(parsed) ? defaultValue : parsed;
+}
+
+// Helper function to safely parse boolean from env strings
+function safeParseBool(value, defaultValue) {
+    if (value === undefined || value === null || value === 'undefined') {
+        return defaultValue;
+    }
+    return value === 'true';
+}
+
 // Settings Dashboard
 router.get('/', async (req, res) => {
     try {
@@ -46,91 +63,109 @@ router.get('/', async (req, res) => {
             }
         }
         
-        // Get current settings
-        const lowStockThreshold = process.env.LOW_STOCK_THRESHOLD || 5;
-        const orderSyncDays = process.env.ORDER_SYNC_DAYS || 90;
-        const autoSyncEnabled = process.env.AUTO_SYNC_ENABLED === 'true';
-        const autoSyncInterval = process.env.AUTO_SYNC_INTERVAL || 24;
-        const notificationsEnabled = process.env.NOTIFICATIONS_ENABLED === 'true';
+        // Get current settings with safe parsing and defaults
+        const settings = {
+            defaultView: process.env.DEFAULT_VIEW || 'gallery', // Added defaultView
+            lowStockThreshold: safeParseInt(process.env.LOW_STOCK_THRESHOLD, 5),
+            orderSyncDays: safeParseInt(process.env.ORDER_SYNC_DAYS, 90),
+            autoSyncEnabled: safeParseBool(process.env.AUTO_SYNC_ENABLED, false),
+            autoSyncInterval: safeParseInt(process.env.AUTO_SYNC_INTERVAL, 24),
+            notificationsEnabled: safeParseBool(process.env.NOTIFICATIONS_ENABLED, false)
+        };
 
         res.render('settings', { 
-            lowStockThreshold,
-            orderSyncDays,
-            autoSyncEnabled,
-            autoSyncInterval,
-            notificationsEnabled,
+            settings, // Pass the whole settings object
             etsyShopId,
             etsyShopName,
             shopifyShopName: process.env.SHOPIFY_SHOP_NAME || null,
             etsyConnected,
-            shopifyConnected
+            shopifyConnected,
+            activePage: 'settings' // Add activePage
         });
     } catch (error) {
-        // Use logger instead of console.error
         logger.error('Error loading settings:', { error: error.message, stack: error.stack });
         req.flash('error', 'Failed to load settings');
-        res.redirect('/');
+        // Render with default settings on error
+        res.render('settings', { 
+            settings: { 
+                defaultView: 'gallery', 
+                lowStockThreshold: 5, 
+                orderSyncDays: 90, 
+                autoSyncEnabled: false, 
+                autoSyncInterval: 24, 
+                notificationsEnabled: false 
+            }, 
+            activePage: 'settings' 
+        });
     }
 });
 
-// Save general settings - updated to handle both regular form POST and fetch API FormData
-router.post('/general', upload.none(), async (req, res) => {
+// Save general settings
+router.post('/general', async (req, res) => {
     try {
-        // Use logger.debug or logger.info instead of console.log
         logger.debug('Received settings form data:', req.body);
-        
+
+        // *** THIS IS WHERE THE VALUES NEED TO BE EXTRACTED ***
         const {
+            defaultView,
             lowStockThreshold,
             orderSyncDays,
-            autoSyncEnabled,
+            autoSyncEnabled, // Checkbox value will be 'on' if checked, undefined if not
             autoSyncInterval,
-            notificationsEnabled
+            notificationsEnabled // Checkbox value will be 'on' if checked, undefined if not
         } = req.body;
-        
-        // Use logger.debug or logger.info instead of console.log
-        logger.debug('Processing settings with values:', {
-            lowStockThreshold,
-            orderSyncDays,
-            autoSyncEnabled,
-            autoSyncInterval,
-            notificationsEnabled
-        });
-        
-        // Update environment variables
-        dotenv.set('LOW_STOCK_THRESHOLD', lowStockThreshold, { encrypt: false });
-        dotenv.set('ORDER_SYNC_DAYS', orderSyncDays, { encrypt: false });
-        dotenv.set('AUTO_SYNC_ENABLED', autoSyncEnabled === 'on' || autoSyncEnabled === true ? 'true' : 'false', { encrypt: false });
-        dotenv.set('AUTO_SYNC_INTERVAL', autoSyncInterval, { encrypt: false });
-        dotenv.set('NOTIFICATIONS_ENABLED', notificationsEnabled === 'on' || notificationsEnabled === true ? 'true' : 'false', { encrypt: false });
-        
-        // Also update process.env so changes take effect immediately
-        process.env.LOW_STOCK_THRESHOLD = lowStockThreshold;
-        process.env.ORDER_SYNC_DAYS = orderSyncDays;
-        process.env.AUTO_SYNC_ENABLED = autoSyncEnabled === 'on' || autoSyncEnabled === true ? 'true' : 'false';
-        process.env.AUTO_SYNC_INTERVAL = autoSyncInterval;
-        process.env.NOTIFICATIONS_ENABLED = notificationsEnabled === 'on' || notificationsEnabled === true ? 'true' : 'false';
-        
-        logger.info('Settings saved successfully', {
-            LOW_STOCK_THRESHOLD: process.env.LOW_STOCK_THRESHOLD,
-            ORDER_SYNC_DAYS: process.env.ORDER_SYNC_DAYS,
-            AUTO_SYNC_ENABLED: process.env.AUTO_SYNC_ENABLED,
-            AUTO_SYNC_INTERVAL: process.env.AUTO_SYNC_INTERVAL,
-            NOTIFICATIONS_ENABLED: process.env.NOTIFICATIONS_ENABLED
-        });
-        
-        // Check if this is an AJAX request or a regular form POST
-        if (req.xhr || req.headers.accept?.includes('json')) {
-            // If it's an AJAX request, return JSON
-            res.json({ success: true, message: 'Settings saved successfully' });
-        } else {
-            // Otherwise redirect with flash message
-            req.flash('success', 'Settings saved successfully');
-            res.redirect('/settings');
+
+        // Process checkbox values: 'on' means true, undefined means false
+        const autoSyncValue = autoSyncEnabled === 'on' ? 'true' : 'false';
+        const notificationsValue = notificationsEnabled === 'on' ? 'true' : 'false';
+
+        // Prepare values for saving (ensure defaults for empty strings)
+        const valuesToSave = {
+            DEFAULT_VIEW: defaultView || 'gallery',
+            LOW_STOCK_THRESHOLD: lowStockThreshold || '5',
+            ORDER_SYNC_DAYS: orderSyncDays || '90',
+            AUTO_SYNC_ENABLED: autoSyncValue,
+            AUTO_SYNC_INTERVAL: autoSyncInterval || '24',
+            NOTIFICATIONS_ENABLED: notificationsValue
+        };
+
+        logger.debug('Attempting to save settings:', valuesToSave);
+
+        try {
+            // Save settings concurrently using Promise.all
+            await Promise.all([
+                dotenv.set('DEFAULT_VIEW', valuesToSave.DEFAULT_VIEW, { encrypt: false }),
+                dotenv.set('LOW_STOCK_THRESHOLD', valuesToSave.LOW_STOCK_THRESHOLD, { encrypt: false }),
+                dotenv.set('ORDER_SYNC_DAYS', valuesToSave.ORDER_SYNC_DAYS, { encrypt: false }),
+                dotenv.set('AUTO_SYNC_ENABLED', valuesToSave.AUTO_SYNC_ENABLED, { encrypt: false }),
+                dotenv.set('AUTO_SYNC_INTERVAL', valuesToSave.AUTO_SYNC_INTERVAL, { encrypt: false }),
+                dotenv.set('NOTIFICATIONS_ENABLED', valuesToSave.NOTIFICATIONS_ENABLED, { encrypt: false })
+            ]);
+            logger.debug('dotenv.set operations completed.');
+
+            // Update process.env in memory
+            process.env.DEFAULT_VIEW = valuesToSave.DEFAULT_VIEW;
+            process.env.LOW_STOCK_THRESHOLD = valuesToSave.LOW_STOCK_THRESHOLD;
+            process.env.ORDER_SYNC_DAYS = valuesToSave.ORDER_SYNC_DAYS;
+            process.env.AUTO_SYNC_ENABLED = valuesToSave.AUTO_SYNC_ENABLED;
+            process.env.AUTO_SYNC_INTERVAL = valuesToSave.AUTO_SYNC_INTERVAL;
+            process.env.NOTIFICATIONS_ENABLED = valuesToSave.NOTIFICATIONS_ENABLED;
+            logger.debug('Updated process.env in memory');
+
+            logger.info('General settings updated successfully.');
+            req.flash('success', 'General settings saved successfully.');
+        } catch (saveError) {
+            logger.error('Error during dotenv.set operation:', {
+                errorMessage: saveError.message,
+                stack: saveError.stack
+            });
+            req.flash('error', 'Failed to save one or more settings.');
         }
+
+        res.redirect('/settings');
     } catch (error) {
-        // Use logger instead of console.error
         logger.error('Error saving general settings:', { error: error.message, stack: error.stack });
-        req.flash('error', 'Failed to save settings');
+        req.flash('error', 'Failed to save general settings.');
         res.redirect('/settings');
     }
 });

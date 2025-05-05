@@ -37,9 +37,10 @@ async function trackRateLimit() {
 async function etsyFetch(url, options, retries = MAX_RETRIES) {
     await trackRateLimit(); // Call the local function defined above
 
+    let response; // Define response outside try block to access in catch/finally
     try {
-        const response = await fetch(url, options);
-        
+        response = await fetch(url, options);
+
         // Log rate limit headers
         const remaining = response.headers.get('x-ratelimit-remaining');
         const limit = response.headers.get('x-ratelimit-limit');
@@ -74,29 +75,46 @@ async function etsyFetch(url, options, retries = MAX_RETRIES) {
 
         if (!response.ok) {
             let errorData = null;
+            let errorText = ''; // Store raw text
             try {
-                errorData = await response.json();
-            } catch {
-                // If not JSON, get text
-                const errorText = await response.text();
-                errorData = { error: errorText };
+                // Clone the response to read it multiple times if needed
+                const clonedResponse = response.clone();
+                errorText = await clonedResponse.text(); // Read raw text first
+                try {
+                    // Attempt to parse the original response as JSON
+                    errorData = await response.json();
+                } catch (jsonError) {
+                    // If JSON parsing fails, log the raw text
+                    logger.warn('Failed to parse Etsy error response as JSON.', { url, status: response.status, responseText: errorText.substring(0, 500), parseError: jsonError.message }); // Log snippet
+                    errorData = { error: errorText || `Status ${response.status}` }; // Use text or status as fallback
+                }
+            } catch (textError) {
+                 // If reading text fails (unlikely but possible)
+                 logger.error('Failed to read Etsy error response text.', { url, status: response.status, readError: textError.message });
+                 errorData = { error: `Failed to read error response body. Status: ${response.status}` };
             }
-            
+
             logger.error(`Etsy API error: ${response.status} ${response.statusText}`, {
                 status: response.status,
                 url,
-                errorData
+                errorData // Log the parsed or fallback error data
             });
-            throw new Error(`Etsy API error: ${response.status} ${response.statusText}`);
+            // Throw an error that includes the status and potentially some text
+            throw new Error(`Etsy API error: ${response.status} ${response.statusText}. Response: ${errorText.substring(0, 200)}`); // Include snippet of raw text
         }
 
+        // If response IS ok, return it for the caller to handle .json()
         return response;
     } catch (error) {
-        if (retries > 0 && !error.message.includes('Authentication failed')) {
-            logger.warn(`Request failed, retrying in ${RETRY_DELAY}ms...`, { error: error.message });
+        // Log network errors or errors thrown above
+        logger.error(`etsyFetch failed for URL: ${url}`, { errorMessage: error.message, status: response?.status });
+
+        if (retries > 0 && !error.message.includes('Authentication failed') && !error.message.includes('Rate limit exceeded')) {
+            logger.warn(`Request failed, retrying in ${RETRY_DELAY * (MAX_RETRIES - retries + 1)}ms...`, { error: error.message });
             await sleep(RETRY_DELAY * (MAX_RETRIES - retries + 1)); // Exponential backoff
             return etsyFetch(url, options, retries - 1);
         }
+        // Re-throw the error after logging and retries
         throw error;
     }
 }

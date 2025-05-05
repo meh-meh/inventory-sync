@@ -16,7 +16,7 @@
         "dotenv": "^16.5.0",
         "etsyapp": "file:",
         "express": "4.x",
-        "express-handlebars": "^8.0.1",
+        "express-handlebars": "^8.0.2",
         "express-session": "^1.18.1",
         "handsontable": "^15.2.0",
         "hbs": "^4.1.2",

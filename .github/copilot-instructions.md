@@ -79,3 +79,5 @@ This document provides coding standards, domain knowledge, and preferences for A
 - When designing your solution, check for existing patterns in the codebase.
 - If unsure about a specific implementation, ask for clarification or provide options with pros/cons.
 - When debugging errors, always refer back to the last known functional code for comparison.
+- For small changes with high confidence, make the edits without asking for input.
+- If you need to explain something to get feedback, err on the side of brevity.

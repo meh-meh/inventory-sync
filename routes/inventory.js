@@ -4,38 +4,48 @@ const Product = require('../models/product');
 const { logger } = require('../utils/logger');
 
 /**
- * Get the main inventory grid view
+ * Get the main inventory gallery view
  */
-router.get('/', async (req, res) => {
-    try {
-        const { totalCount, columns } = await getInventoryViewData();
-        res.render('inventory', { 
-            initialCount: totalCount, 
-            columns: columns
-        });
-    } catch (error) {
-        logger.error('Error fetching inventory view:', error);
-        req.flash('error', 'Error loading inventory');
-        res.status(500).send('Error loading inventory');
-    }
-});
-
-/**
- * Get the inventory gallery view
- */
-router.get('/gallery', async (req, res) => {
+router.get('/', async (req, res) => { // Reverted: Render gallery view by default
     try {
         const { totalCount, columns } = await getInventoryViewData();
         res.render('inventory-gallery', { 
             initialCount: totalCount, 
             columns: columns,
-            title: 'Inventory Gallery View'
+            title: 'Inventory Gallery View',
+            activePage: 'inventory' // Add activePage
         });
     } catch (error) {
         logger.error('Error fetching inventory gallery view:', error);
         req.flash('error', 'Error loading inventory gallery view');
         res.status(500).send('Error loading inventory gallery view');
     }
+});
+
+/**
+ * Get the inventory table view
+ */
+router.get('/table', async (req, res) => { // Reinstated route for table view
+    try {
+        const { totalCount, columns } = await getInventoryViewData();
+        res.render('inventory', { 
+            initialCount: totalCount, 
+            columns: columns,
+            title: 'Inventory Table View',
+            activePage: 'inventory' // Add activePage
+        });
+    } catch (error) {
+        logger.error('Error fetching inventory table view:', error);
+        req.flash('error', 'Error loading inventory table view');
+        res.status(500).send('Error loading inventory table view');
+    }
+});
+
+/**
+ * Get the inventory gallery view (kept for potential direct linking, redirects to /)
+ */
+router.get('/gallery', (req, res) => {
+    res.redirect('/inventory'); // Redirect old gallery link to the new default
 });
 
 /**
@@ -143,16 +153,24 @@ router.get('/details/:sku', async (req, res) => {
         }
         
         // Calculate available quantity
-        product.quantity_available = calculateAvailableQuantity(product);
-        
+        const quantity_available = calculateAvailableQuantity(product); // Calculate first
+
         // Check if product is connected to marketplaces
         const etsyConnected = !!product.etsy_data?.listing_id;
         const shopifyConnected = !!product.shopify_data?.product_id;
-        
+
+        // Convert Mongoose document to plain object *after* calculations
+        const productData = product.toObject();
+        productData.quantity_available = quantity_available; // Add calculated property to the plain object
+
+        // Log the product data being passed to the template
+        logger.info('Rendering product details for SKU:', req.params.sku, { productData: JSON.stringify(productData, null, 2) }); // Log the plain object
+
         res.render('product-details', { 
-            product,
+            product: productData, // Pass the plain JavaScript object
             etsyConnected,
-            shopifyConnected
+            shopifyConnected,
+            activePage: 'inventory' // Add activePage
         });
     } catch (error) {
         logger.error('Error loading product details page:', { sku: req.params.sku, error });
@@ -228,33 +246,42 @@ router.post('/properties', async (req, res) => {
 
 /**
  * Get data required for inventory views (grid and table)
- * @returns {Promise<Object>} View data including column definitions
  */
 async function getInventoryViewData() {
-    // Get total count for pagination info
-    const totalCount = await Product.countDocuments();
-    
-    // Get unique property names for columns
-    const propertyNames = await getUniquePropertyNames();
-    
-    // Create columns configuration
-    const columns = [
-        { data: 'sku', title: 'SKU', readOnly: true },
-        { data: 'name', title: 'Name' },
-        { data: 'location', title: 'Location' },
-        { data: 'quantity_on_hand', title: 'On Hand' },
-        { data: 'quantity_committed', title: 'Committed', readOnly: true },
-        { data: 'quantity_available', title: 'Available', readOnly: true },
-        { data: 'etsy_data.quantity', title: 'Etsy Qty', readOnly: true },
-        { data: 'shopify_data.inventory_quantity', title: 'Shopify Qty', readOnly: true },
-        ...Array.from(propertyNames).map(prop => ({
-            data: `properties.${prop}`,
-            title: prop
-        }))
+    // Placeholder: Define columns statically or fetch if needed
+    let columns = [
+        { data: 'sku', title: 'SKU', type: 'text', readOnly: true },
+        { data: 'name', title: 'Name', type: 'text' },
+        { data: 'location', title: 'Location', type: 'text' },
+        { data: 'quantity_on_hand', title: 'On Hand', type: 'numeric' },
+        { data: 'quantity_committed', title: 'Committed', type: 'numeric', readOnly: true },
+        { data: 'quantity_available', title: 'Available', type: 'numeric', readOnly: true },
+        { data: 'etsy_data.quantity', title: 'Etsy Qty', type: 'numeric', readOnly: true },
+        { data: 'shopify_data.inventory_quantity', title: 'Shopify Qty', type: 'numeric', readOnly: true },
+        // Add other columns as needed
     ];
-    
+
+    // Example: Fetch distinct properties if you want dynamic columns
+    // const distinctProperties = await getUniquePropertyNames(); 
+    // distinctProperties.forEach(propName => {
+    //     columns.push({ data: `properties.${propName}`, title: propName, type: 'text' });
+    // });
+
+    const totalCount = await Product.countDocuments();
     return { totalCount, columns };
 }
+
+// Example function if you need dynamic properties
+// async function getUniquePropertyNames() {
+//     const products = await Product.find({ 'properties.0': { $exists: true } }).select('properties.name').lean();
+//     const propertyNames = new Set();
+//     products.forEach(p => {
+//         if (p.properties) {
+//             p.properties.forEach(prop => propertyNames.add(prop.name));
+//         }
+//     });
+//     return Array.from(propertyNames);
+// }
 
 /**
  * Build search filter for inventory queries
@@ -313,30 +340,6 @@ async function updateOrCreateProduct(productData) {
         logger.info('Created new product', { sku: productData.sku });
         return newProduct;
     }
-}
-
-/**
- * Get all unique property names from products collection
- * @returns {Promise<Set<String>>} Set of unique property names
- */
-async function getUniquePropertyNames() {
-    const allProperties = new Set();
-    
-    // Find products with properties
-    const productsWithProps = await Product.find({ properties: { $exists: true } })
-        .lean()
-        .select('properties');
-    
-    // Collect all unique property names
-    productsWithProps.forEach(product => {
-        if (product.properties) {
-            Object.keys(product.properties).forEach(key => {
-                allProperties.add(key);
-            });
-        }
-    });
-    
-    return allProperties;
 }
 
 module.exports = router;
