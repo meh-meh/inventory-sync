@@ -1101,6 +1101,8 @@ router.get('/sync-orders', async (req, res) => {
 
 // Sync Etsy orders
 async function syncEtsyOrders(req, res) {
+    //TODO: Update to resync all unshipped orders
+
     const syncId = validateSyncId(req.query.syncId, 'etsy', 'orders');
     
     // Initialize sync status
@@ -1150,7 +1152,7 @@ async function syncEtsyOrders(req, res) {
         allOrders.push(...orders);
         let totalCount = (typeof data.count === 'number' && isFinite(data.count) && data.count > 0) ? data.count : orders.length;
         const totalPages = Math.ceil(totalCount / limit);
-        updateSyncStatus(syncId, { currentPhase: `Fetching orders (${totalPages} pages)`, progress: 15, syncCount: allOrders.length, totalCount });
+        updateSyncStatus(syncId, { currentPhase: `Fetching orders (${totalPages} pages)`, progress: 15, syncCount: allOrders.length, totalCount, processedCount: allOrders.length });
         if (orders.length < limit || totalPages <= 1) {
             logger.info(`Fetched ${allOrders.length} Etsy orders in date range (single page)`);
         } else if (totalPages > 10000) {
@@ -1212,7 +1214,7 @@ async function syncEtsyOrders(req, res) {
             await Promise.all(Array(ORDER_SYNC_CONCURRENCY).fill(0).map(() => worker()));
             allOrders.push(...results);
         }
-        updateSyncStatus(syncId, { currentPhase: 'Processing orders', progress: 80, syncCount: allOrders.length });
+        updateSyncStatus(syncId, { currentPhase: 'Processing orders', progress: 80, syncCount: allOrders.length, processedCount: allOrders.length });
         // Prepare bulkWrite operations
         const bulkOps = [];
         const existingOrders = await Order.find({
@@ -1258,7 +1260,8 @@ async function syncEtsyOrders(req, res) {
                 updateSyncStatus(syncId, { 
                     currentPhase: `Processing orders (${i + 1} of ${allOrders.length})`, 
                     progress: 80 + Math.round(((i + 1) / allOrders.length) * 15), 
-                    syncCount: i + 1 
+                    syncCount: i + 1,
+                    processedCount: i + 1
                 });
             }
         }
