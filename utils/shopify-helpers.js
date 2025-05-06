@@ -26,12 +26,12 @@ function getShopifyClient() {
         shopifyClient = new Shopify({
             shopName: shopName, // your-store.myshopify.com
             accessToken: process.env.SHOPIFY_ACCESS_TOKEN,
-            //apiVersion: '2023-10', // Use the same API version as before
+            apiVersion: '2023-10', // Explicitly set API version
             autoLimit: true, // Automatically handle rate limits
-            //timeout: 30000, // Default timeout is 30 seconds
+            timeout: 60000, // Increase timeout to 60 seconds
         });
 
-        logger.info(`Shopify client initialized for shop: ${shopName}`);
+        logger.info(`Shopify client initialized for shop: ${shopName} with API version ${shopifyClient.options.apiVersion}`);
     }
     return shopifyClient;
 }

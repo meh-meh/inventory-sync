@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <title>Sync Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Add UUID library -->
+    <script src="https://cdn.jsdelivr.net/npm/uuid@latest/dist/umd/uuidv4.min.js"></script>
     <style>
         /* Keep specific styles for this view */
         .sync-card { margin-bottom: 20px; }
@@ -18,7 +20,8 @@
         <h2>Sync Dashboard</h2>
         
         <!-- Live sync status reporting area -->
-        <div id="syncStatusArea" class="alert alert-secondary mb-4">
+        <div id="syncStatusArea" class="alert alert-secondary mb-4" style="display: none; position: relative;">
+            <button id="closeSyncStatusBtn" type="button" class="btn-close" aria-label="Close" style="position: absolute; top: 10px; right: 10px; display: none;"></button>
             <h5 id="syncTitle">Syncing...</h5>
             <div id="syncDetails">
                 <!-- Details populated by JS -->
@@ -75,8 +78,8 @@
                         <h5 class="card-title">Sync Orders</h5>
                         <p class="card-text">Fetch new orders from Etsy and Shopify.</p>
                         <div class="btn-group">
-                            <a href="/sync/sync-orders?marketplace=etsy" class="btn btn-outline-primary">Sync Etsy Orders</a>
-                            <a href="/sync/sync-orders?marketplace=shopify" class="btn btn-outline-success">Sync Shopify Orders</a>
+                            <button id="syncEtsyOrdersBtn" class="btn btn-outline-primary">Sync Etsy Orders</button>
+                            <button id="syncShopifyOrdersBtn" class="btn btn-outline-success">Sync Shopify Orders</button>
                         </div>
                          <div class="sync-stats mt-2">
                             {{!-- Use the variables passed directly from the route --}}
@@ -106,64 +109,108 @@
     
     <!-- Sync Status Handling -->
     <script>
-        // Track sync session ID
-        let currentSyncId = null;
-        let syncCheckInterval = null;
+        // Track active sync processes
+        let activeSyncs = {};
+        let syncCheckIntervals = {};
+        
+        // Generate a proper UUID v4 for syncId
+        function generateSyncId(marketplace, syncType) {
+            // Use the actual UUID v4 function from the loaded library
+            return `${marketplace.toLowerCase()}-${syncType.toLowerCase()}-${uuidv4()}`;
+        }
+        
+        // Store multiple syncIds in localStorage
+        function storeSyncId(syncId) {
+            let syncIds = getSavedSyncIds();
+            if (!syncIds.includes(syncId)) {
+                syncIds.push(syncId);
+                localStorage.setItem('activeSyncIds', JSON.stringify(syncIds));
+            }
+        }
+        
+        // Remove a syncId from localStorage
+        function removeSyncId(syncId) {
+            let syncIds = getSavedSyncIds();
+            syncIds = syncIds.filter(id => id !== syncId);
+            localStorage.setItem('activeSyncIds', JSON.stringify(syncIds));
+        }
+        
+        // Get all saved syncIds
+        function getSavedSyncIds() {
+            const saved = localStorage.getItem('activeSyncIds');
+            return saved ? JSON.parse(saved) : [];
+        }
         
         // Function to start monitoring a sync process
-        function startSyncMonitor(syncId) { // Added syncType
-            const marketplace = syncId.split('-')[0]; // Extract marketplace from syncId
-            const syncType = syncId.split('-')[1]; // Extract sync type from syncId
-
-            console.log(`Starting to monitor sync process ${syncId} for ${marketplace} ${syncType}`);
-            const statusArea = document.getElementById('syncStatusArea');
-            const syncTitle = document.getElementById('syncTitle');
-            const syncDetails = document.getElementById('syncDetails');
-            const progressBar = document.getElementById('syncProgressBar');
-            const syncLog = document.getElementById('syncLog');
+        function startSyncMonitor(syncId) {
+            if (!syncId) return;
             
-            // Reset UI elements
-            syncTitle.textContent = `Syncing ${marketplace} ${syncType}...`;
-            syncDetails.innerHTML = ''; // Clear previous details
-            syncLog.innerHTML = ''; // Clear previous logs
-            progressBar.style.width = '0%';
-            progressBar.setAttribute('aria-valuenow', '0');
-            progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated'; // Reset progress bar style
-            
-            // Show the status area
-            statusArea.style.display = 'block';
-            statusArea.className = 'alert alert-info mb-4'; // Use info style while syncing
-            
-            // Store the sync ID
-            currentSyncId = syncId;
-            
-            // Clear any existing interval
-            if (syncCheckInterval) {
-                clearInterval(syncCheckInterval);
+            const parts = syncId.split('-');
+            if (parts.length < 3) {
+                console.error('Invalid syncId format:', syncId);
+                return;
             }
             
-            // Start polling for updates
-            updateSyncStatus(); // Initial call
-            syncCheckInterval = setInterval(updateSyncStatus, 1000); // Poll every 1 second
+            const marketplace = parts[0];
+            const syncType = parts[1];
+
+            console.log(`Starting to monitor sync process ${syncId} for ${marketplace} ${syncType}`);
+            
+            // Always show the status area/modal when a sync starts
+            updateSyncModal({
+                visible: true,
+                title: `Syncing ${marketplace} ${syncType}...`,
+                details: 'Initializing sync process...',
+                progress: 0,
+                log: [],
+                status: 'info',
+                closable: false
+            });
+            
+            // Store the sync ID
+            activeSyncs[syncId] = {
+                marketplace,
+                syncType,
+                startTime: new Date()
+            };
+            
+            // Clear any existing interval for this syncId
+            if (syncCheckIntervals[syncId]) {
+                clearInterval(syncCheckIntervals[syncId]);
+            }
+            
+            // Add a short delay before the first status check to allow the server to initialize
+            setTimeout(() => {
+                // Start polling for updates
+                updateSyncStatus(syncId); // Initial call after delay
+                syncCheckIntervals[syncId] = setInterval(() => updateSyncStatus(syncId), 500); // Poll every 0.5 second
+            }, 1000); // 1 second delay before first check
         }
         
         // Function to update the sync status display
-        async function updateSyncStatus() {
-            if (!currentSyncId) return;
+        async function updateSyncStatus(syncId) {
+            if (!syncId || !activeSyncs[syncId]) {
+                console.warn(`No valid sync process found for ID: ${syncId}`);
+                return;
+            }
             
             try {
-                console.log(`Polling for sync status: ${currentSyncId}`);
-                const response = await fetch(`/sync/status/${currentSyncId}`);
+                console.log(`Polling for sync status: ${syncId}`);
+                const response = await fetch(`/sync/status/${syncId}`);
                 if (!response.ok) {
                     // Handle cases where the sync process might have ended abruptly
                     if (response.status === 404) {
-                        console.warn(`Sync process ${currentSyncId} not found. Assuming complete or error.`);
-                        clearInterval(syncCheckInterval);
-                        syncCheckInterval = null;
-                        // Optionally update UI to reflect unknown status or potential error
-                        const statusArea = document.getElementById('syncStatusArea');
-                        statusArea.className = 'alert alert-warning mb-4';
-                        document.getElementById('syncTitle').textContent = 'Sync Status Unknown';
+                        // Only make modal closable if it was already open
+                        updateSyncModal({
+                            visible: true,
+                            title: 'Sync not found or already finished.',
+                            status: 'warning',
+                            closable: true
+                        });
+                        clearInterval(syncCheckIntervals[syncId]);
+                        delete syncCheckIntervals[syncId];
+                        delete activeSyncs[syncId];
+                        removeSyncId(syncId);
                         return;
                     }
                     throw new Error(`Failed to fetch sync status: ${response.status} ${response.statusText}`);
@@ -172,101 +219,74 @@
                 const data = await response.json();
                 console.log('Received sync status:', data);
                 
-                const progressBar = document.getElementById('syncProgressBar');
-                const syncDetails = document.getElementById('syncDetails');
-                const syncLog = document.getElementById('syncLog');
-                const syncTitle = document.getElementById('syncTitle');
-                const statusArea = document.getElementById('syncStatusArea');
-
                 // Update details and log
-                syncDetails.innerHTML = `Phase: ${data.currentPhase || 'Starting...'}<br>Processed: ${data.processedCount || 0}`;
-                if (data.log && syncLog.lastChild?.textContent !== data.log[data.log.length - 1]) {
-                    syncLog.innerHTML = data.log.map(entry => `<div>${entry}</div>`).join('');
-                    syncLog.scrollTop = syncLog.scrollHeight; // Scroll to bottom
-                }
-                // Hide syncLog if empty, show if not
-                if (!syncLog.innerHTML.trim()) {
-                    syncLog.style.display = 'none';
-                } else {
-                    syncLog.style.display = 'block';
-                }
+                const details = `Phase: ${data.currentPhase || 'Starting...'}<br>Processed: ${data.processedCount || 0} of ${data.totalCount || '?'}`;
+                const log = data.log || [];
                 
                 // Update progress bar
-                if (data.complete) {
-                    progressBar.style.width = '100%';
-                    progressBar.setAttribute('aria-valuenow', 100);
-                } else {
-                    progressBar.style.width = `${data.progress || 0}%`;
-                    progressBar.setAttribute('aria-valuenow', data.progress || 0);
-                }
+                const progress = data.complete ? 100 : (data.progress || 0);
                 
                 // If sync is complete, update display
                 if (data.complete) {
-                    clearInterval(syncCheckInterval);
-                    syncCheckInterval = null;
-                    currentSyncId = null; // Clear current sync ID
-                    localStorage.removeItem('currentSyncId'); // Clear syncId from localStorage
+                    clearInterval(syncCheckIntervals[syncId]);
+                    delete syncCheckIntervals[syncId];
+                    delete activeSyncs[syncId];
+                    removeSyncId(syncId);
                     
-                    progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
-                    
-                    if (data.error) {
-                        statusArea.className = 'alert alert-danger mb-4';
-                        syncTitle.textContent = `Sync Error: ${data.error}`; 
-                        progressBar.classList.add('bg-danger');
-                    } else {
-                        statusArea.className = 'alert alert-success mb-4';
-                        syncTitle.textContent = 'Sync Complete';
-                        progressBar.classList.add('bg-success');
-                        // Optionally reload the page slightly later to show updated sync times
-                        // setTimeout(() => window.location.reload(), 2000);
-                    }
+                    const status = data.error ? 'danger' : 'success';
+                    const title = data.error ? `Sync Error: ${data.error}` : 'Sync Complete';
+                    updateSyncModal({
+                        visible: true,
+                        title,
+                        details,
+                        progress,
+                        log,
+                        status,
+                        closable: true
+                    });
+                } else {
+                    updateSyncModal({
+                        visible: true,
+                        title: `Syncing...`,
+                        details,
+                        progress,
+                        log,
+                        status: 'info',
+                        closable: false
+                    });
                 }
             } catch (error) {
                 console.error('Error checking sync status:', error);
-                // Optionally stop polling on error
-                // clearInterval(syncCheckInterval);
-                // syncCheckInterval = null;
-                // Update UI to show error fetching status
-            }
-        }
-        
-        // Check if we have a syncId in the URL
-        function checkUrlForSyncId() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const syncId = urlParams.get('syncId');
-            
-            if (syncId) {
-                console.log(`Found syncId in URL: ${syncId}`);
-                startSyncMonitor(syncId);
-                
-                // Clear the syncId from the URL to prevent auto-starting on refresh
-                if (history.pushState) {
-                    const newUrl = window.location.protocol + "//" + 
-                                window.location.host + 
-                                window.location.pathname;
-                    window.history.pushState({path: newUrl}, '', newUrl);
-                }
+                // Don't stop polling on network errors - it might be temporary
             }
         }
         
         // Function to initiate a sync process
         function startSync(marketplace, syncType = 'Products') {
-            const syncId = `${marketplace}-${syncType}-${Date.now()}`;
-            localStorage.setItem('currentSyncId', syncId); // Save syncId
+            const syncId = generateSyncId(marketplace, syncType);
+            storeSyncId(syncId); // Save syncId in the array of active syncs
             console.log(`Starting ${marketplace} ${syncType} sync with ID: ${syncId}`);
             
-            // Start monitoring the sync immediately
-            startSyncMonitor(syncId);
+            // Show modal and start monitoring
+            updateSyncModal({
+                visible: true,
+                title: `Syncing ${marketplace} ${syncType}...`,
+                details: '',
+                progress: 0,
+                log: [],
+                status: 'info',
+                closable: false,
+                syncId
+            });
             
             let syncUrl;
             if (syncType === 'Products') {
                 syncUrl = `/sync/sync-${marketplace.toLowerCase()}?syncId=${syncId}`;
             } else if (syncType === 'Orders') {
-                // Orders sync currently uses redirects, not background tasks with status
-                // For now, just navigate for orders
-                window.location.href = `/sync/sync-orders?marketplace=${marketplace.toLowerCase()}`;
-                return; // Exit early for orders
-            }
+                syncUrl = `/sync/sync-orders?marketplace=${marketplace.toLowerCase()}&syncId=${syncId}`;
+            } else if (syncType === 'Reconcile') {
+                syncUrl = `/sync/secretroute?syncId=${syncId}`;
+            } 
             // Add other sync types here if needed
 
             if (!syncUrl) {
@@ -291,13 +311,20 @@
                     console.error(`Error starting ${marketplace} ${syncType} sync:`, error);
                     alert(`Error starting sync: ${error.message}`);
                     // Update UI to show the error
-                    const statusArea = document.getElementById('syncStatusArea');
-                    const syncTitle = document.getElementById('syncTitle');
-                    statusArea.className = 'alert alert-danger mb-4';
-                    syncTitle.textContent = `Failed to start sync: ${error.message}`;
-                    if (syncCheckInterval) clearInterval(syncCheckInterval);
-                    syncCheckInterval = null;
-                    currentSyncId = null;
+                    updateSyncModal({
+                        visible: true,
+                        title: `Failed to start sync: ${error.message}`,
+                        status: 'danger',
+                        closable: true
+                    });
+                    
+                    // Clean up on error
+                    if (syncCheckIntervals[syncId]) {
+                        clearInterval(syncCheckIntervals[syncId]);
+                        delete syncCheckIntervals[syncId];
+                    }
+                    delete activeSyncs[syncId];
+                    removeSyncId(syncId);
                 });
         }
         
@@ -305,18 +332,17 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('DOM loaded, setting up event listeners');
             
-            // Check for syncId in URL (if needed for resuming monitoring)
-            // checkUrlForSyncId(); 
-            
-            const savedSyncId = localStorage.getItem('currentSyncId');
-            if (savedSyncId) {
-                startSyncMonitor(savedSyncId);
+            // Resume monitoring for any active syncs
+            const savedSyncIds = getSavedSyncIds();
+            if (savedSyncIds.length > 0) {
+                console.log(`Found ${savedSyncIds.length} active syncs to resume monitoring`);
+                savedSyncIds.forEach(syncId => startSyncMonitor(syncId));
             }
 
             const etsyProductsBtn = document.getElementById('syncEtsyProductsBtn');
             const shopifyProductsBtn = document.getElementById('syncShopifyProductsBtn');
-            const etsyOrdersLink = document.querySelector('a[href="/sync/sync-orders?marketplace=etsy"]');
-            const shopifyOrdersLink = document.querySelector('a[href="/sync/sync-orders?marketplace=shopify"]');
+            const etsyOrdersBtn = document.getElementById('syncEtsyOrdersBtn');
+            const shopifyOrdersBtn = document.getElementById('syncShopifyOrdersBtn');
 
             if (etsyProductsBtn) {
                 // console.log('Found Etsy products button, attaching listener');
@@ -332,20 +358,80 @@
                 console.warn('Shopify products button (#syncShopifyProductsBtn) not found');
             }
 
-            // Keep standard navigation for Order sync links for now
-            // If you want background order sync, these would need similar handling
-            if (etsyOrdersLink) {
-                console.log('Found Etsy orders link');
-            } else {
-                console.warn('Etsy orders link not found');
+            if (etsyOrdersBtn) {
+                etsyOrdersBtn.addEventListener('click', () => startSync('Etsy', 'Orders'));
             }
-            if (shopifyOrdersLink) {
-                console.log('Found Shopify orders link');
-            } else {
-                console.warn('Shopify orders link not found');
+            if (shopifyOrdersBtn) {
+                shopifyOrdersBtn.addEventListener('click', () => startSync('Shopify', 'Orders'));
+            }
+
+            const closeBtn = document.getElementById('closeSyncStatusBtn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', function() {
+                    updateSyncModal({ visible: false });
+                });
+            }
+
+            const reconcileBtn = document.getElementById('reconcileBtn');
+            if (reconcileBtn) {
+                reconcileBtn.addEventListener('click', () => startSync('Shopify', 'Reconcile'));
             }
 
         });
+
+        /**
+         * Updates or initializes the sync progress modal and manages polling.
+         * @param {Object} opts - Modal options
+         * @param {boolean} opts.visible - Show/hide the modal
+         * @param {string} [opts.title] - Title text
+         * @param {string} [opts.details] - Details HTML
+         * @param {number} [opts.progress] - Progress percent (0-100)
+         * @param {string[]} [opts.log] - Array of log strings
+         * @param {string} [opts.status] - 'info' | 'success' | 'danger' | 'warning'
+         * @param {boolean} [opts.closable] - Show/hide close button
+         * @param {string} [opts.syncId] - If provided, will start monitoring this syncId
+         */
+        function updateSyncModal({ visible, title, details, progress, log, status = 'info', closable = false, syncId }) {
+            const statusArea = document.getElementById('syncStatusArea');
+            const syncTitle = document.getElementById('syncTitle');
+            const syncDetails = document.getElementById('syncDetails');
+            const progressBar = document.getElementById('syncProgressBar');
+            const syncLog = document.getElementById('syncLog');
+            const closeBtn = document.getElementById('closeSyncStatusBtn');
+
+            // Show/hide modal
+            statusArea.style.display = visible ? 'block' : 'none';
+            // Set alert style
+            statusArea.className = `alert alert-${status} mb-4`;
+            // Title
+            if (title !== undefined) syncTitle.textContent = title;
+            // Details
+            if (details !== undefined) syncDetails.innerHTML = details;
+            // Progress bar
+            if (progress !== undefined) {
+                progressBar.style.width = `${progress}%`;
+                progressBar.setAttribute('aria-valuenow', progress);
+                if (progress >= 100) {
+                    progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+                } else {
+                    progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
+                }
+            }
+            // Log
+            if (log !== undefined) {
+                syncLog.innerHTML = log.length ? log.map(entry => `<div>${entry}</div>`).join('') : '';
+                syncLog.style.display = log.length ? 'block' : 'none';
+                if (log.length) syncLog.scrollTop = syncLog.scrollHeight;
+            }
+            // Close button
+            closeBtn.style.display = closable ? 'block' : 'none';
+            closeBtn.disabled = !closable;
+
+            // If syncId is provided, start monitoring
+            if (syncId) {
+                startSyncMonitor(syncId);
+            }
+        }
     </script>
 </body>
 </html>

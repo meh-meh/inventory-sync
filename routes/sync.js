@@ -18,31 +18,140 @@ const { performance } = require('perf_hooks');
 const Shopify = require('shopify-api-node'); // Add this import for direct Shopify client
 const fsSync = require('fs'); // For createWriteStream
 const { etsyRequest } = require('../utils/etsy-request-pool');
+const { v4: uuidv4 } = require('uuid'); // Add UUID for more reliable ID generation
+const { query } = require('express');
+const { now } = require('mongoose');
 
-// In-memory store for sync status
+// In-memory store for sync status with enhanced retention
 const syncStatus = new Map();
 
-// --- Helper Function to Parse JSON with Logging ---
-// async function parseJsonResponse(response, url) {
-//     let responseText = ''; // Store raw text
-//     try {
-//         // Clone response to allow reading text even if json parsing fails
-//         const clonedResponse = response.clone();
-//         responseText = await clonedResponse.text();
-//         // Attempt to parse original response
-//         const jsonData = await response.json();
-//         return jsonData;
-//     } catch (error) {
-//         logger.error(`Failed to parse JSON response from ${url}`, {
-//             status: response.status,
-//             statusText: response.statusText,
-//             responseText: responseText.substring(0, 500), // Log first 500 chars
-//             parseErrorMessage: error.message,
-//         });
-//         // Re-throw a more informative error
-//         throw new Error(`Failed to parse JSON response from ${url}. Status: ${response.status}. Response snippet: ${responseText.substring(0, 100)}`);
-//     }
-// }
+// Constants for sync status management
+const SYNC_STATUS_RETENTION_MS = 10 * 60 * 1000; // Keep sync status for 10 minutes
+
+/**
+ * Concurrency settings for parallel API page fetches.
+ * These do NOT override the global Etsy API concurrency pool, which is always enforced.
+ * Tune these for performance as needed.
+ */
+const PRODUCT_SYNC_CONCURRENCY = 5; // For product listing syncs
+const ORDER_SYNC_CONCURRENCY = 5;   // For order syncs
+
+/**
+ * Validates and processes a syncId from request parameters
+ * @param {string} requestSyncId - The sync ID from request parameters
+ * @param {string} marketplace - The marketplace (etsy or shopify)
+ * @param {string} syncType - The type of sync (products, orders, etc.)
+ * @returns {string} A validated syncId
+ */
+function validateSyncId(requestSyncId, marketplace, syncType) {
+    if (requestSyncId) {
+        // Validate existing syncId format (allow old format for backward compatibility)
+        return requestSyncId;
+    }
+    
+    // Generate new standardized syncId
+    return `${marketplace.toLowerCase()}-${syncType.toLowerCase()}-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+}
+
+/**
+ * Initializes sync status tracking for a new sync operation
+ * @param {string} syncId - The unique ID for this sync operation
+ * @param {string} marketplace - The marketplace this sync is for (etsy or shopify)
+ * @param {string} syncType - The type of sync operation (products, orders, etc.)
+ * @returns {Object} The initialized status object
+ */
+function initializeSyncStatus(syncId, marketplace, syncType) {
+    const status = {
+        syncId,
+        marketplace,
+        syncType,
+        syncCount: 0,
+        processedCount: 0,
+        totalCount: 0,
+        counts: {},
+        currentPhase: `Initializing ${marketplace} ${syncType} sync`,
+        removedCount: 0,
+        progress: 5, // Start with 5% to show something is happening
+        complete: false,
+        error: null,
+        startTime: Date.now(),
+        lastUpdated: Date.now()
+    };
+    
+    syncStatus.set(syncId, status);
+    logger.info(`Initialized sync status for ${syncId}`, { syncId, marketplace, syncType });
+    return status;
+}
+
+/**
+ * Updates the status of a sync operation
+ * @param {string} syncId - The sync ID to update
+ * @param {Object} updates - The properties to update
+ * @returns {Object|null} The updated status or null if not found
+ */
+function updateSyncStatus(syncId, updates) {
+    const status = syncStatus.get(syncId);
+    if (!status) {
+        logger.warn(`Attempted to update non-existent sync status: ${syncId}`);
+        return null;
+    }
+    
+    Object.assign(status, updates, { lastUpdated: Date.now() });
+    syncStatus.set(syncId, status);
+    return status;
+}
+
+router.get('/secretroute', async (req, res) => {
+    // This is a secret route for testing purposes only
+    // In a real application, you would not expose this endpoint like this
+    initializeSyncStatus(req.query.syncId, 'dummy', 'data');
+
+    const status = updateSyncStatus(req.query.syncId, { syncCount: 31, processedCount: 30, totalCount: '25', progress: 69, currentPhase: 'Testing modal', counts: '69?' });
+    res.json(status);
+});
+
+
+
+/**
+ * Marks a sync operation as complete
+ * @param {string} syncId - The sync ID to complete
+ * @param {Object} finalUpdates - Final updates to apply before marking as complete
+ * @param {Error|null} error - Optional error if the sync failed
+ */
+function completeSyncStatus(syncId, finalUpdates = {}, error = null) {
+    const status = syncStatus.get(syncId);
+    if (!status) {
+        logger.warn(`Attempted to complete non-existent sync status: ${syncId}`);
+        return;
+    }
+    
+    const updates = {
+        ...finalUpdates,
+        complete: true,
+        progress: 100,
+        currentPhase: error ? 'Failed' : 'Complete',
+        endTime: Date.now(),
+        duration: Date.now() - status.startTime
+    };
+    
+    if (error) {
+        updates.error = typeof error === 'string' ? error : error.message;
+        logger.error(`Sync ${syncId} completed with error: ${updates.error}`);
+    } else {
+        logger.info(`Sync ${syncId} completed successfully in ${updates.duration}ms`);
+    }
+    
+    Object.assign(status, updates);
+    syncStatus.set(syncId, status);
+    
+    // Schedule status cleanup after retention period
+    setTimeout(() => {
+        if (syncStatus.has(syncId)) {
+            logger.debug(`Cleaning up sync status for ${syncId} after retention period`);
+            syncStatus.delete(syncId);
+        }
+    }, SYNC_STATUS_RETENTION_MS);
+}
 
 // Sync dashboard
 router.get('/', async (req, res) => {
@@ -135,7 +244,9 @@ async function fetchAllListings(shop_id, syncId) {
         sold_out: 0
     };
     const allListings = [];
-    const CONCURRENCY = 5;
+    // Note: CONCURRENCY here controls how many parallel jobs (e.g., pages) this sync logic will attempt to process at once.
+    // The global Etsy API concurrency limit is enforced by etsy-request-pool.js and will always keep us within Etsy's rate limits.
+    // You can tune this value for performance, but the global pool is the final safeguard.
 
     // Update status if syncId is provided
     const updateStatus = (progress, currentPhase = '') => {
@@ -235,12 +346,6 @@ async function fetchAllListings(shop_id, syncId) {
                             () => etsyFetch(pageUrl, requestOptions),
                             { endpoint: '/listings', method: 'GET', state, offset, syncId }
                         );
-                        if (resp.status === 429) {
-                            logger.warn('Received HTTP 429 (Too Many Requests) from Etsy API', { offset, state });
-                            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries)));
-                            retries++;
-                            continue;
-                        }
                         if (!resp.ok) {
                             const errorText = await resp.text();
                             logger.error('Error fetching listings:', { status: resp.status, error: errorText });
@@ -269,7 +374,7 @@ async function fetchAllListings(shop_id, syncId) {
                     results.push(...res);
                 }
             }
-            await Promise.all(Array(CONCURRENCY).fill(0).map(() => worker()));
+            await Promise.all(Array(PRODUCT_SYNC_CONCURRENCY).fill(0).map(() => worker()));
             allListings.push(...results);
         }
         updateStatus(10 + Math.round((states.indexOf(state) / states.length) * 70));
@@ -361,24 +466,11 @@ async function removeProductsWithUnselectedShippingProfiles() {
 router.get('/sync-etsy', async (req, res) => {
     try {
         // Get the sync ID from the query parameter
-        const syncId = req.query.syncId || Date.now().toString();
+        const syncId = validateSyncId(req.query.syncId, 'etsy', 'products');
         console.log(`Starting Etsy sync with syncId: ${syncId}`);
         
         // Initialize sync status
-        syncStatus.set(syncId, {
-            syncCount: 0,
-            counts: {
-                active: 0,
-                draft: 0,
-                expired: 0,
-                inactive: 0,
-                sold_out: 0
-            },
-            removedCount: 0,
-            progress: 5, // Start with 5% to show something is happening
-            complete: false,
-            error: null
-        });
+        initializeSyncStatus(syncId, 'etsy', 'products');
         
         // Start the sync process without waiting for it to complete
         syncEtsyProducts(syncId, req)
@@ -386,12 +478,7 @@ router.get('/sync-etsy', async (req, res) => {
                 logger.error('Error in background Etsy sync:', { error: error.message });
                 
                 // Update sync status with error
-                const status = syncStatus.get(syncId);
-                if (status) {
-                    status.complete = true;
-                    status.error = error.message;
-                    syncStatus.set(syncId, status);
-                }
+                updateSyncStatus(syncId, { complete: true, error: error.message });
             });
         
         // If the request is from fetch (Ajax), send a JSON response
@@ -426,19 +513,11 @@ router.get('/sync-etsy', async (req, res) => {
 });
 
 router.get('/sync-shopify', async (req, res) => {
-    const syncId = req.query.syncId || Date.now().toString();
+    const syncId = validateSyncId(req.query.syncId, 'shopify', 'products');
     console.log(`Starting Shopify sync with syncId: ${syncId}`);
 
     // Initialize sync status
-    syncStatus.set(syncId, {
-        syncCount: 0, // Placeholder, will be updated
-        counts: {}, // Placeholder
-        removedCount: 0, // Placeholder
-        progress: 5, // Start with 5%
-        complete: false,
-        error: null,
-        currentPhase: 'Initializing'
-    });
+    initializeSyncStatus(syncId, 'shopify', 'products');
 
     // Start the sync process in the background, passing the syncId
     syncShopifyProducts(syncId, req) // Pass syncId here
@@ -446,13 +525,7 @@ router.get('/sync-shopify', async (req, res) => {
             // This catch is for errors thrown *synchronously* before the async function really gets going
             // or if the async function itself isn't caught internally properly (should be avoided).
             logger.error('Error directly from syncShopifyProducts invocation:', { syncId, error: error.message });
-            const status = syncStatus.get(syncId);
-            if (status) {
-                status.complete = true;
-                status.error = `Failed to start Shopify sync: ${error.message}`;
-                status.progress = 100; // Mark as complete even on error start
-                syncStatus.set(syncId, status);
-            }
+            updateSyncStatus(syncId, { complete: true, error: `Failed to start Shopify sync: ${error.message}`, progress: 100 });
         });
 
     // Respond immediately to the client with the syncId
@@ -470,16 +543,11 @@ async function syncEtsyProducts(syncId, req) {
     try {
         logger.info('Starting Etsy product sync', { syncId });
         const shop_id = await getShopId();
-        status.currentPhase = 'Fetching listings';
-        syncStatus.set(syncId, status);
+        updateSyncStatus(syncId, { currentPhase: 'Fetching listings' });
 
         // Fetch all listings
         const { listings, counts } = await fetchAllListings(shop_id, syncId);
-        status.counts = counts;
-        status.syncCount = listings.length;
-        status.progress = 30;
-        status.currentPhase = 'Processing listings';
-        syncStatus.set(syncId, status);
+        updateSyncStatus(syncId, { counts, syncCount: listings.length, progress: 30, currentPhase: 'Processing listings' });
 
         // Process listings
         const processStartTime = performance.now();
@@ -588,9 +656,7 @@ async function syncEtsyProducts(syncId, req) {
         const processEndTime = performance.now();
         logger.info(`[Perf] Etsy listing processing loop took ${(processEndTime - processStartTime).toFixed(2)}ms`, { syncId, count: listings.length });
 
-        status.progress = 70;
-        status.currentPhase = 'Updating database';
-        syncStatus.set(syncId, status);
+        updateSyncStatus(syncId, { progress: 70, currentPhase: 'Updating database' });
 
         // Perform bulk write
         if (bulkOps.length > 0) {
@@ -608,17 +674,12 @@ async function syncEtsyProducts(syncId, req) {
         }
 
         // Clean up products based on shipping profiles
-        status.progress = 90;
-        status.currentPhase = 'Cleaning up';
-        syncStatus.set(syncId, status);
+        updateSyncStatus(syncId, { progress: 90, currentPhase: 'Cleaning up' });
         const cleanupResult = await removeProductsWithUnselectedShippingProfiles();
-        status.removedCount = cleanupResult.deletedCount || 0;
+        updateSyncStatus(syncId, { removedCount: cleanupResult.deletedCount || 0 });
 
         // Mark sync as complete
-        status.progress = 100;
-        status.complete = true;
-        status.currentPhase = 'Complete';
-        syncStatus.set(syncId, status);
+        completeSyncStatus(syncId);
         logger.info('Etsy product sync completed successfully', { syncId });
 
         // Record successful sync time in Settings
@@ -628,12 +689,7 @@ async function syncEtsyProducts(syncId, req) {
         logger.error('Error syncing Etsy products in background', { error: error.message });
         
         // Update status with error
-        const status = syncStatus.get(syncId);
-        if (status) {
-            status.complete = true;
-            status.error = error.message;
-            syncStatus.set(syncId, status);
-        }
+        completeSyncStatus(syncId, {}, error);
         
         // Set flash error to be shown on next page load
         if (req.session) {
@@ -728,24 +784,18 @@ async function syncShopifyProducts(syncId) {
     let ignoreCount = 0;
 
     try {
-        status.currentPhase = 'Checking existing data';
-        status.progress = 10;
-        syncStatus.set(syncId, status);
+        updateSyncStatus(syncId, { currentPhase: 'Checking existing data', progress: 10 });
 
         const existingData = await getNewestFile(directoryPath);
 
         if (existingData && existingData.startsWith(filePrefix) && path.parse(existingData).name.split('_').pop() > Date.now() - 1000 * 60 * 60 * 2) {
             logger.info(`Using existing data file: ${existingData}`, { syncId });
             fileName = path.resolve(directoryPath, existingData);
-            status.currentPhase = 'Using cached data';
-            status.progress = 20; // Jump ahead if using cache
-            syncStatus.set(syncId, status);
+            updateSyncStatus(syncId, { currentPhase: 'Using cached data', progress: 20 }); // Jump ahead if using cache
             url = 'local'; // Indicate local file usage
         } else {
             logger.info('Existing data file is old or missing, fetching new data from Shopify...', { syncId });
-            status.currentPhase = 'Requesting bulk export';
-            status.progress = 15;
-            syncStatus.set(syncId, status);
+            updateSyncStatus(syncId, { currentPhase: 'Requesting bulk export', progress: 15 });
 
             // Use direct Shopify client as in sync_old.js
             const shopify = new Shopify({
@@ -776,9 +826,7 @@ async function syncShopifyProducts(syncId) {
                 let operationStatus = initialResult.bulkOperationRunQuery.bulkOperation.status;
                 logger.info(`Shopify bulk operation started. ID: ${bulkOperationId}, Status: ${operationStatus}`, { syncId });
 
-                status.currentPhase = 'Polling bulk export status';
-                status.progress = 20;
-                syncStatus.set(syncId, status);
+                updateSyncStatus(syncId, { currentPhase: 'Polling bulk export status', progress: 20 });
 
                 const queryJob = `query { node(id: "${bulkOperationId}") { ... on BulkOperation { id status errorCode createdAt completedAt objectCount fileSize url partialDataUrl } } }`;
                 const MAX_POLL_ATTEMPTS = 60;
@@ -800,16 +848,13 @@ async function syncShopifyProducts(syncId) {
                     logger.debug(`Bulk operation status: ${operationStatus}`, { syncId });
 
                     // Update progress slightly during polling
-                    status.progress = 20 + Math.min(60, Math.round((pollAttempts / MAX_POLL_ATTEMPTS) * 20)); // Progress from 20% to 40% during polling
-                    syncStatus.set(syncId, status);
+                    updateSyncStatus(syncId, { progress: 20 + Math.min(60, Math.round((pollAttempts / MAX_POLL_ATTEMPTS) * 20)) }); // Progress from 20% to 40% during polling
 
 
                     if (operationStatus === 'COMPLETED') {
                         url = pollResult.node.url;
                         logger.info(`Shopify bulk operation ${bulkOperationId} completed successfully. URL: ${url}`, { syncId });
-                        status.currentPhase = 'Downloading data';
-                        status.progress = 40;
-                        syncStatus.set(syncId, status);
+                        updateSyncStatus(syncId, { currentPhase: 'Downloading data', progress: 40 });
                         break;
                     } else if (operationStatus === 'FAILED') {
                         logger.error(`Shopify bulk operation ${bulkOperationId} failed.`, { syncId, errorCode: pollResult.node.errorCode });
@@ -845,9 +890,7 @@ async function syncShopifyProducts(syncId) {
                 throw new Error('Failed to obtain download URL from Shopify bulk operation.');
             } else {
                 logger.info(`Downloading Shopify product data from ${url}...`, { syncId });
-                status.currentPhase = 'Downloading data'; // Already set, but good to be explicit
-                status.progress = 45;
-                syncStatus.set(syncId, status);
+                updateSyncStatus(syncId, { currentPhase: 'Downloading data', progress: 45 }); // Already set, but good to be explicit
                 try {
                     const response = await fetch(url);
                     if (!response.ok || !response.body) {
@@ -864,8 +907,7 @@ async function syncShopifyProducts(syncId) {
                          throw new Error('Node version too old for efficient stream handling from fetch response.');
                      }
                     logger.info(`Shopify product data downloaded successfully to ${fileName}`, { syncId });
-                    status.progress = 50;
-                    syncStatus.set(syncId, status);
+                    updateSyncStatus(syncId, { progress: 50 });
                 } catch (downloadError) {
                     logger.error('Error downloading or saving Shopify product data:', { syncId, error: downloadError });
                     throw downloadError; // Re-throw for main catch block
@@ -876,9 +918,7 @@ async function syncShopifyProducts(syncId) {
         // --- Process downloaded data ---
         if (url && fileName) {
             logger.info(`Processing Shopify data from file: ${fileName}`, { syncId });
-            status.currentPhase = 'Processing data';
-            status.progress = 55;
-            syncStatus.set(syncId, status);
+            updateSyncStatus(syncId, { currentPhase: 'Processing data', progress: 55 });
 
             const fileReadStream = fsSync.createReadStream(fileName); // Use fsSync for streams
             const rl = readline.createInterface({
@@ -940,16 +980,12 @@ async function syncShopifyProducts(syncId) {
             });
 
             logger.info(`Finished initial processing of ${fileName}. Processed ${lineCount} lines. Found ${Object.keys(allProducts).length} products.`, { syncId });
-            status.syncCount = Object.keys(allProducts).length; // Update total count
-            status.progress = 70;
-            syncStatus.set(syncId, status);
+            updateSyncStatus(syncId, { syncCount: Object.keys(allProducts).length, progress: 70 }); // Update total count
 
 
             // --- Database Update Logic ---
             logger.info('Preparing database updates for Shopify products...', { syncId });
-            status.currentPhase = 'Updating database';
-            status.progress = 75;
-            syncStatus.set(syncId, status);
+            updateSyncStatus(syncId, { currentPhase: 'Updating database', progress: 75 });
 
             const bulkOps = [];
             const syncTimestamp = new Date();
@@ -984,30 +1020,25 @@ async function syncShopifyProducts(syncId) {
             if (ignoreCount > 0) {
                  logger.info(`Ignored ${ignoreCount} products based on vendor or other criteria.`, { syncId });
             }
-            status.syncCount = bulkOps.length; // Refine sync count to actual operations
+            updateSyncStatus(syncId, { syncCount: bulkOps.length }); // Refine sync count to actual operations
 
             if (bulkOps.length > 0) {
                 logger.info('Performing bulk write operation to database...', { syncId });
-                status.progress = 85;
-                syncStatus.set(syncId, status);
+                updateSyncStatus(syncId, { progress: 85 });
                 try {
                     const result = await Product.bulkWrite(bulkOps);
-                    logger.info('Database bulk write completed.', { syncId, upserted: result.upsertedCount, modified: result.modifiedCount, matched: result.matchedCount });
+                    logger.info('Database bulk write completed.', { syncId, upserted: result.upsertedCount, modified: result.modifiedCount });
                     // Update status counts based on result
-                    status.counts = { // Example counts, adjust as needed
-                        added: result.upsertedCount,
-                        updated: result.modifiedCount
-                    };
+                    updateSyncStatus(syncId, { counts: { added: result.upsertedCount, updated: result.modifiedCount } }); // Example counts, adjust as needed
                 } catch (dbError) {
                     logger.error('Error during database bulk write:', { syncId, error: dbError });
                     throw dbError; // Re-throw for main catch block
                 }
             } else {
                 logger.info('No valid Shopify products found to update in the database.', { syncId });
-                 status.counts = { added: 0, updated: 0 }; // Set counts to zero
+                 updateSyncStatus(syncId, { counts: { added: 0, updated: 0 } }); // Set counts to zero
             }
-            status.progress = 95;
-            syncStatus.set(syncId, status);
+            updateSyncStatus(syncId, { progress: 95 });
         } else {
              logger.info('Skipping database update because no Shopify data was downloaded or processed.', { syncId });
              // If we skipped download due to cache, we still need to mark as complete later
@@ -1019,15 +1050,11 @@ async function syncShopifyProducts(syncId) {
 
         // --- Data File Cleanup ---
         logger.info('Cleaning up old data files...', { syncId });
-        status.currentPhase = 'Cleaning up';
-        syncStatus.set(syncId, status);
+        updateSyncStatus(syncId, { currentPhase: 'Cleaning up' });
         await cleanupDataFiles(directoryPath, filePrefix, 5);
 
         logger.info('Shopify product sync process finished successfully.', { syncId });
-        status.progress = 100;
-        status.complete = true;
-        status.currentPhase = 'Complete';
-        syncStatus.set(syncId, status);
+        completeSyncStatus(syncId);
 
         // Record successful sync time ONLY if the operation didn't fail early
         // Check if url is not null (meaning bulk op likely succeeded or we used cache)
@@ -1040,16 +1067,7 @@ async function syncShopifyProducts(syncId) {
         logger.error('Error during Shopify product sync process:', { syncId, error: error.message, stack: error.stack });
 
         // Update status with error details
-        const finalStatus = syncStatus.get(syncId); // Get potentially updated status
-        if (finalStatus) {
-            finalStatus.complete = true;
-            finalStatus.error = error.message || 'An unknown error occurred during Shopify sync.';
-            finalStatus.progress = 100; // Mark as complete even on error
-            syncStatus.set(syncId, finalStatus);
-        } else {
-            // This case should ideally not happen if initialization worked
-            logger.error(`Could not find status object for ${syncId} to report final error.`);
-        }
+        completeSyncStatus(syncId, {}, error);
 
         // No req.flash here as this runs in the background
 
@@ -1087,50 +1105,45 @@ router.get('/sync-orders', async (req, res) => {
 
 // Sync Etsy orders
 async function syncEtsyOrders(req, res) {
+    const syncId = validateSyncId(req.query.syncId, 'etsy', 'orders');
+    
+    // Initialize sync status
+    initializeSyncStatus(syncId, 'etsy', 'orders');
+
     const overallStartTime = performance.now();
-    let rateLimit429Count = 0;
     let requestTimings = [];
     try {
-        logger.info('Starting Etsy order sync');
+        logger.info('Starting Etsy order sync', { syncId });
         const shopId = await getShopId();
         const tokenData = JSON.parse(process.env.TOKEN_DATA);
         const limit = 100;
         let allOrders = [];
         let newOrderCount = 0;
         let updatedOrderCount = 0;
-
-        // Get last sync time and use a 1-day overlap
         let lastSyncTime = await Settings.getSetting('lastEtsyOrderSync');
         let minCreated;
         if (lastSyncTime) {
             const overlapMs = 24 * 60 * 60 * 1000; // 1 day overlap
             minCreated = Math.floor((new Date(lastSyncTime).getTime() - overlapMs) / 1000);
         } else {
-            // Fallback to ORDER_SYNC_DAYS env or 90 days
             const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || '90', 10);
             minCreated = Math.floor((Date.now() - orderSyncDays * 24 * 60 * 60 * 1000) / 1000);
         }
-
         const headers = {
             'x-api-key': process.env.ETSY_API_KEY,
             'Authorization': `Bearer ${tokenData.access_token}`
         };
-
         // First, fetch the first page to get the total count
         const firstUrl = `${API_BASE_URL}/application/shops/${shopId}/receipts?limit=${limit}&offset=0&min_created=${minCreated}`;
         const reqStart = Date.now();
-        logger.debug(`Fetching Etsy orders: ${firstUrl}`);
+        updateSyncStatus(syncId, { currentPhase: 'Fetching first page of orders', progress: 10 });
         let response = await etsyRequest(
             () => etsyFetch(firstUrl, { headers }),
-            { endpoint: '/receipts', method: 'GET', offset: 0, syncId: req.query.syncId }
+            { endpoint: '/receipts', method: 'GET', offset: 0, syncId }
         );
         let reqDuration = Date.now() - reqStart;
         requestTimings.push(reqDuration);
         logger.info(`Fetched batch in ${reqDuration}ms (offset=0)`);
-        if (response.status === 429) {
-            rateLimit429Count++;
-            logger.warn('Received HTTP 429 (Too Many Requests) from Etsy API', { offset: 0, url: firstUrl });
-        }
         if (!response.ok) {
             const errorText = await response.text();
             logger.error('Failed to fetch Etsy orders', { status: response.status, error: errorText });
@@ -1139,24 +1152,22 @@ async function syncEtsyOrders(req, res) {
         const data = await response.json();
         const orders = data.results || [];
         allOrders.push(...orders);
-        // Validate data.count before using for pagination
         let totalCount = (typeof data.count === 'number' && isFinite(data.count) && data.count > 0) ? data.count : orders.length;
         const totalPages = Math.ceil(totalCount / limit);
-
+        updateSyncStatus(syncId, { currentPhase: `Fetching orders (${totalPages} pages)`, progress: 15, syncCount: allOrders.length, totalCount });
         if (orders.length < limit || totalPages <= 1) {
             logger.info(`Fetched ${allOrders.length} Etsy orders in date range (single page)`);
-        } else if (totalPages > 10000) { // Arbitrary safety cap
+        } else if (totalPages > 10000) {
             logger.error(`Unreasonable totalPages value: ${totalPages}. Aborting sync to prevent memory issues.`);
             throw new Error('Etsy API returned an unreasonable count for pagination.');
         } else {
-            // Calculate total pages
-            logger.info(`Etsy order sync: totalCount=${totalCount}, totalPages=${totalPages}`);
             // Prepare offsets for all remaining pages
             const offsets = [];
             for (let i = 1; i < totalPages; i++) {
                 offsets.push(i * limit);
             }
-            // Define fetchPage function for parallel workers
+            let index = 0;
+            const results = [];
             async function fetchPage(offset) {
                 let retries = 0;
                 while (retries < 5) {
@@ -1166,18 +1177,11 @@ async function syncEtsyOrders(req, res) {
                         logger.debug(`Fetching Etsy orders: ${url}`);
                         let resp = await etsyRequest(
                             () => etsyFetch(url, { headers }),
-                            { endpoint: '/receipts', method: 'GET', offset, syncId: req.query.syncId }
+                            { endpoint: '/receipts', method: 'GET', offset, syncId }
                         );
                         let reqDuration = Date.now() - reqStart;
                         requestTimings.push(reqDuration);
                         logger.info(`Fetched batch in ${reqDuration}ms (offset=${offset})`);
-                        if (resp.status === 429) {
-                            rateLimit429Count++;
-                            logger.warn('Received HTTP 429 (Too Many Requests) from Etsy API', { offset, url });
-                            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries))); // Exponential backoff
-                            retries++;
-                            continue;
-                        }
                         if (!resp.ok) {
                             const errorText = await resp.text();
                             logger.error('Failed to fetch Etsy orders', { status: resp.status, error: errorText });
@@ -1194,24 +1198,25 @@ async function syncEtsyOrders(req, res) {
                 logger.error('Failed to fetch Etsy orders after retries', { offset });
                 return [];
             }
-            // Parallel fetch with concurrency pool pattern
-            const CONCURRENCY = 5;
-            let index = 0;
-            const results = [];
             async function worker() {
                 while (index < offsets.length) {
                     const myIndex = index++;
                     const offset = offsets[myIndex];
                     const res = await fetchPage(offset);
                     results.push(...res);
+                    // Get a fresh reference to the status object to avoid using a stale variable
+                    const currentCount = allOrders.length + results.length;
+                    updateSyncStatus(syncId, { 
+                        syncCount: currentCount, 
+                        progress: 15 + Math.round((currentCount / totalCount) * 60), 
+                        currentPhase: `Fetching orders (page ${Math.floor((currentCount / totalCount) * totalPages) + 1} of ${totalPages})` 
+                    });
                 }
             }
-            await Promise.all(Array(CONCURRENCY).fill(0).map(() => worker()));
+            await Promise.all(Array(ORDER_SYNC_CONCURRENCY).fill(0).map(() => worker()));
             allOrders.push(...results);
         }
-        logger.info(`Fetched ${allOrders.length} Etsy orders in date range`);
-        logger.info(`Etsy order sync: average request time = ${requestTimings.length ? (requestTimings.reduce((a, b) => a + b, 0) / requestTimings.length).toFixed(2) : 0}ms, 429s encountered: ${rateLimit429Count}`);
-
+        updateSyncStatus(syncId, { currentPhase: 'Processing orders', progress: 80, syncCount: allOrders.length });
         // Prepare bulkWrite operations
         const bulkOps = [];
         const existingOrders = await Order.find({
@@ -1219,8 +1224,7 @@ async function syncEtsyOrders(req, res) {
             marketplace: 'etsy'
         }).lean();
         const existingOrderMap = new Map(existingOrders.map(o => [o.order_id, o]));
-
-        for (const etsyOrderData of allOrders) {
+        for (const [i, etsyOrderData] of allOrders.entries()) {
             const receiptIdStr = etsyOrderData.receipt_id?.toString();
             if (!receiptIdStr) continue;
             const existing = existingOrderMap.get(receiptIdStr);
@@ -1228,7 +1232,6 @@ async function syncEtsyOrders(req, res) {
             if (typeof timestamp !== 'number' || timestamp <= 0) continue;
             const orderDate = new Date(timestamp * 1000);
             if (isNaN(orderDate.getTime())) continue;
-
             const items = (etsyOrderData.transactions || []).map(tx => ({
                 marketplace: 'etsy',
                 sku: tx.sku || 'UNKNOWN',
@@ -1238,7 +1241,6 @@ async function syncEtsyOrders(req, res) {
                 listing_id: tx.listing_id?.toString(),
                 transaction_id: tx.transaction_id?.toString()
             }));
-
             const update = {
                 $set: {
                     etsy_order_data: etsyOrderData,
@@ -1248,10 +1250,6 @@ async function syncEtsyOrders(req, res) {
                     items
                 }
             };
-
-            // Use updateFromEtsy if available
-            // (Assume updateFromEtsy is a method on the Order model instance, not usable here)
-
             bulkOps.push({
                 updateOne: {
                     filter: { order_id: receiptIdStr, marketplace: 'etsy' },
@@ -1259,314 +1257,569 @@ async function syncEtsyOrders(req, res) {
                     upsert: true
                 }
             });
+            // Update progress every 50 items
+            if (i % 50 === 0) {
+                updateSyncStatus(syncId, { 
+                    currentPhase: `Processing orders (${i + 1} of ${allOrders.length})`, 
+                    progress: 80 + Math.round(((i + 1) / allOrders.length) * 15), 
+                    syncCount: i + 1 
+                });
+            }
         }
-
-        // Execute bulkWrite
         let result = { upsertedCount: 0, modifiedCount: 0 };
         if (bulkOps.length > 0) {
+            updateSyncStatus(syncId, { currentPhase: 'Writing to database', progress: 97 });
             result = await Order.bulkWrite(bulkOps, { ordered: false });
         }
-
-        // Count new and updated orders
         newOrderCount = result.upsertedCount || 0;
         updatedOrderCount = result.modifiedCount || 0;
-
-        logger.info(`Successfully synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders`);
-        req.flash('success', `Synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders.`);
-
-        // Record successful sync time in Settings
+        logger.info(`Successfully synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders`, { syncId });
+        completeSyncStatus(syncId);
         await Settings.setSetting('lastEtsyOrderSync', new Date().toISOString());
-
-        if (res) res.redirect('/sync');
+        if (res) res.json({ success: true, message: `Synced ${newOrderCount} new and ${updatedOrderCount} existing Etsy orders.`, syncId });
     } catch (error) {
-        logger.error('Error syncing Etsy orders:', { error: error.message, stack: error.stack });
-        if (req && res) {
-            req.flash('error', `Error syncing Etsy orders: ${error.message}`);
-            res.redirect('/sync');
+        logger.error('Error syncing Etsy orders:', { syncId, error: error.message, stack: error.stack });
+        completeSyncStatus(syncId, {}, error);
+        if (res) {
+            res.status(500).json({ success: false, error: error.message });
         }
     } finally {
         const overallEndTime = performance.now();
-        logger.info(`[Perf] Overall syncEtsyOrders took ${(overallEndTime - overallStartTime).toFixed(2)}ms`);
+        logger.info(`[Perf] Overall syncEtsyOrders took ${(overallEndTime - overallStartTime).toFixed(2)}ms`, { syncId });
     }
 }
 
 // Sync Shopify orders
-async function syncShopifyOrders(req, res) {
+async function syncShopifyOrders_old(req, res) {
+    const syncId = validateSyncId(req.query.syncId, 'shopify', 'orders');
+    
+    // Initialize sync status
+    initializeSyncStatus(syncId, 'shopify', 'orders');
+    
     const overallStartTime = performance.now();
-    try { // Outer try for initial setup
-        // Check for the correct environment variables
-        if (!process.env.SHOPIFY_ACCESS_TOKEN || !process.env.SHOPIFY_SHOP_NAME) {
-            req.flash('error', 'Shopify credentials are not configured. Please connect your Shopify account in settings.');
-            return res.redirect('/sync');
+    try {
+        logger.info('Starting Shopify order sync', { syncId });
+        updateSyncStatus(syncId, { currentPhase: 'Initializing Shopify order sync', progress: 5 });
+        
+        // Get Shopify client
+        const shopify = shopifyHelpers.getShopifyClient();
+        
+        // Configure date range for sync
+        const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || 90, 10);
+        const syncStartDate = new Date();
+        syncStartDate.setDate(syncStartDate.getDate() - orderSyncDays);
+        logger.info(`Using Order Sync Period of ${orderSyncDays} days from settings`, { syncId });
+        
+        // Log API configuration for debugging
+        logger.info('Shopify client configuration:', {
+            syncId,
+            shopName: process.env.SHOPIFY_SHOP_NAME ? 'Set' : 'Missing',
+            accessToken: process.env.SHOPIFY_ACCESS_TOKEN ? 'Set (masked)' : 'Missing',
+            apiVersion: shopify.options?.apiVersion || 'Unknown'
+        });
+        
+        // Temporarily store orders in memory
+        let allShopifyOrders = [];
+        const processedOrderIds = new Set(); // For tracking duplicates
+        
+        // Get an estimate of total orders for progress tracking
+        let estimatedTotal = 0;
+        try {
+            const countResult = await shopify.order.count({ 
+                created_at_min: syncStartDate.toISOString() 
+            });
+            estimatedTotal = countResult || 0;
+            logger.info(`Estimated total Shopify orders to sync: ${estimatedTotal}`, { syncId });
+        } catch (countError) {
+            logger.warn('Could not get order count from Shopify', { 
+                syncId, 
+                error: countError.message 
+            });
+            estimatedTotal = 500; // Default estimate
         }
         
-        logger.info('Starting Shopify order sync');
-        
-        try { // Inner try for the main sync logic and API calls
-            // Use shopify-helpers to get the client instead of creating a new one
-            const shopify = shopifyHelpers.getShopifyClient();
-            
-            // Get date range for Order Sync Period from settings
-            const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || 90, 10);
-            const syncStartDate = new Date();
-            syncStartDate.setDate(syncStartDate.getDate() - orderSyncDays);
-            
-            logger.info(`Using Order Sync Period of ${orderSyncDays} days from settings`);
-            
-            // Fetch orders from Shopify with pagination
-            let newOrderCount = 0;
-            let updatedOrderCount = 0;
-            const newSkus = new Set();
-            
-            // Initial query params
-            const params = {
-                status: 'any',
-                created_at_min: syncStartDate.toISOString(),
-                limit: 250 // Shopify default is 50, max is 250
-            };
+        updateSyncStatus(syncId, { 
+            currentPhase: 'Fetching orders', 
+            progress: 10,
+            totalCount: estimatedTotal
+        });
 
-            // Implement pagination to fetch all orders in the date range
-            let allShopifyOrders = [];
-            let hasMore = true;
-            let lastId = null;
-            while (hasMore) {
-                const fetchParams = { ...params };
-                if (lastId) fetchParams.since_id = lastId;
-                const batch = await shopify.order.list(fetchParams);
-                if (batch && batch.length > 0) {
-                    allShopifyOrders.push(...batch);
-                    lastId = batch[batch.length - 1].id;
-                    hasMore = batch.length === params.limit;
+        // Use since_id pagination as it's more reliable than page-based for Shopify
+        let hasMoreOrders = true;
+        let lastId = 0; // Start with 0 to get all orders (changed from null)
+        let pageNumber = 1;
+        
+        // Set up base parameters for all requests
+        const baseParams = {
+            limit: 200, // Reduced from 250 to 200 for more reliable pagination
+            status: 'any',
+            created_at_min: syncStartDate.toISOString(),
+            fields: 'id,created_at,order_number,name,line_items,customer,total_price,financial_status,fulfillment_status'
+        };
+        
+        // Track results for debugging
+        const pageResults = [];
+        
+        // Continue until we have no more orders or hit an error
+        while (hasMoreOrders) {
+            try {
+                // Create params for this request
+                const params = { ...baseParams };
+                
+                // Add since_id for pagination if we have one (ensure it's an actual number value)
+                if (lastId && lastId > 0) {
+                    params.since_id = lastId;
+                    logger.info(`Using since_id pagination with lastId=${lastId}`, { syncId, page: pageNumber });
                 } else {
-                    hasMore = false;
+                    logger.info(`First page fetch without since_id`, { syncId });
                 }
-            }
-            logger.info(`Fetched ${allShopifyOrders.length} Shopify orders in date range`, { count: allShopifyOrders.length });
-            // Use allShopifyOrders instead of shopifyOrders below
-            // ...existing code...
-            const processLoopStartTime = performance.now();
-            for (const shopifyOrder of allShopifyOrders) {
-                // Use order_id with Shopify order ID as the unique identifier
-                let order = await Order.findOne({ 
-                    marketplace: 'shopify', 
-                    order_id: `shopify-${shopifyOrder.id.toString()}` 
+                
+                logger.info(`Fetching Shopify orders batch ${pageNumber}`, { 
+                    syncId, 
+                    page: pageNumber,
+                    params: JSON.stringify(params)
                 });
                 
-                const isNew = !order;
+                // Request this batch of orders
+                const startTime = Date.now();
+                const batch = await shopify.order.list(params);
+                const endTime = Date.now();
                 
-                if (!order) {
-                    order = new Order({
-                        order_id: `shopify-${shopifyOrder.id.toString()}`,
-                        marketplace: 'shopify',
-                        shopify_order_number: shopifyOrder.order_number?.toString() || shopifyOrder.name,
-                        order_date: new Date(shopifyOrder.created_at),
-                        buyer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
-                        // Set a unique receipt_id for Shopify orders to avoid conflicts
-                        receipt_id: `shopify-${shopifyOrder.id.toString()}`
-                    });
-                }
+                // Log results for this batch
+                logger.info(`Received batch ${pageNumber} with ${batch?.length || 0} orders in ${endTime - startTime}ms`, {
+                    syncId,
+                    page: pageNumber,
+                    batchSize: batch?.length || 0,
+                    requestTime: endTime - startTime
+                });
                 
-                // Update order items
-                if (shopifyOrder.line_items && shopifyOrder.line_items.length > 0) {
-                    order.items = shopifyOrder.line_items.map(item => {
-                        const sku = item.sku || `SHOPIFY-${item.product_id}-${item.variant_id}`;
-                        
-                        // Check if this is a new SKU we haven't seen before
-                        if (sku) {
-                            newSkus.add({
-                                sku,
-                                product_id: item.product_id?.toString(),
-                                variant_id: item.variant_id?.toString(),
-                                title: item.title || item.name
-                            });
+                // Store results for debugging
+                pageResults.push({
+                    page: pageNumber,
+                    count: batch?.length || 0,
+                    requestTime: endTime - startTime,
+                    firstOrderId: batch?.[0]?.id || null,
+                    lastOrderId: batch?.length ? batch[batch.length-1]?.id : null
+                });
+                
+                // Process this batch of orders
+                if (batch && batch.length > 0) {
+                    // Filter out any duplicate orders
+                    const newOrders = batch.filter(order => {
+                        const orderId = order.id?.toString();
+                        if (!orderId || processedOrderIds.has(orderId)) {
+                            return false;
                         }
-                        
-                        return {
-                            marketplace: 'shopify',
-                            line_item_id: item.id?.toString(),
-                            product_id: item.product_id?.toString(),
-                            variant_id: item.variant_id?.toString(),
-                            sku,
-                            quantity: item.quantity,
-                            is_digital: item.requires_shipping === false
-                        };
+                        processedOrderIds.add(orderId);
+                        return true;
                     });
+                    
+                    logger.info(`Found ${newOrders.length} new orders in batch ${pageNumber}`, { 
+                        syncId, 
+                        page: pageNumber,
+                        newCount: newOrders.length,
+                        totalSoFar: allShopifyOrders.length + newOrders.length
+                    });
+                    
+                    // Add to our collection
+                    allShopifyOrders = allShopifyOrders.concat(newOrders);
+                    
+                    // Update progress
+                    updateSyncStatus(syncId, { 
+                        syncCount: allShopifyOrders.length,
+                        progress: 10 + Math.min(70, Math.round((allShopifyOrders.length / Math.max(estimatedTotal, 1)) * 70)),
+                        currentPhase: `Fetching orders (batch ${pageNumber})`,
+                        totalCount: Math.max(estimatedTotal, allShopifyOrders.length)
+                    });
+                    
+                    // Check if we need to fetch another batch
+                    // Stop if we get less than half the limit (more reliable than checking for < limit)
+                    if (batch.length < (baseParams.limit / 2)) {
+                        hasMoreOrders = false;
+                        logger.info(`Received ${batch.length} orders (less than half of limit ${baseParams.limit}), pagination complete`, { syncId });
+                    } else {
+                        // Get the highest ID for next page
+                        // Find the highest ID in the current batch to use for since_id in next request
+                        const highestId = Math.max(...batch.map(order => parseInt(order.id) || 0));
+                        
+                        if (highestId > lastId) {
+                            lastId = highestId;
+                            logger.info(`Setting next since_id pagination to ${lastId}`, { 
+                                syncId, 
+                                currentPage: pageNumber,
+                                nextPage: pageNumber + 1
+                            });
+                            pageNumber++;
+                            
+                            // Add delay to avoid rate limiting
+                            await shopifyHelpers.sleep(500);
+                        } else {
+                            // If we didn't get a higher ID, something is wrong with pagination
+                            logger.warn(`No higher ID found in batch, ending pagination (lastId=${lastId}, highestId=${highestId})`, { syncId });
+                            hasMoreOrders = false;
+                        }
+                    }
+                } else {
+                    // No orders in this batch, we're done
+                    hasMoreOrders = false;
+                    logger.info(`No orders found in batch ${pageNumber}, pagination complete`, { syncId });
+                }
+            } catch (error) {
+                logger.error(`Error fetching Shopify orders batch ${pageNumber}`, {
+                    syncId,
+                    page: pageNumber,
+                    error: error.message,
+                    stack: error.stack
+                });
+                
+                if (pageNumber === 1) {
+                    // If first batch fails, we can't continue
+                    throw new Error(`Failed to fetch first page of Shopify orders: ${error.message}`);
                 }
                 
-                // Update order data using the helper method
-                order.updateFromShopify(shopifyOrder);
-                order.shopify_order_data = shopifyOrder;
-                await order.save();
-                
-                if (isNew) newOrderCount++;
-                else updatedOrderCount++;
+                // For later batches, log the error but continue with what we have
+                logger.warn(`Continuing with ${allShopifyOrders.length} orders already fetched due to error`, { syncId });
+                hasMoreOrders = false;
             }
-            const processLoopEndTime = performance.now();
-            logger.info(`[Perf] Shopify order processing loop took ${(processLoopEndTime - processLoopStartTime).toFixed(2)}ms`, { new: newOrderCount, updated: updatedOrderCount });
-
-            // Process new SKUs that are not already in the product database
-            const existingSkus = await Product.distinct('sku', { 
-                sku: { $in: Array.from(newSkus).map(item => item.sku) }
+        }
+        
+        // Log the final summary of all pages
+        logger.info(`Pagination results:`, {
+            syncId,
+            totalBatches: pageResults.length,
+            pageDetails: pageResults,
+            totalOrdersFetched: allShopifyOrders.length
+        });
+        
+        // Update status with accurate order count
+        const actualTotal = allShopifyOrders.length;
+        logger.info(`Successfully fetched ${actualTotal} Shopify orders across ${pageResults.length} batches`, { 
+            syncId,
+            totalOrders: actualTotal,
+            totalBatches: pageResults.length
+        });
+        
+        updateSyncStatus(syncId, { 
+            currentPhase: 'Processing orders', 
+            progress: 80,
+            syncCount: actualTotal,
+            totalCount: actualTotal
+        });
+        
+        // Lookup existing orders in the database to determine new vs updated
+        const orderIds = allShopifyOrders.map(o => `shopify-${o.id}`);
+        logger.info(`Looking up ${orderIds.length} orders in database`, { syncId });
+        
+        const existingOrders = await Order.find({
+            order_id: { $in: orderIds },
+            marketplace: 'shopify'
+        }).lean();
+        
+        const existingOrderMap = new Map(existingOrders.map(o => [o.order_id, o]));
+        logger.info(`Found ${existingOrders.length} existing Shopify orders in database`, { syncId });
+        
+        // Prepare database operations
+        const bulkOps = [];
+        let newOrders = 0;
+        let updatedOrders = 0;
+        
+        // Process all orders and prepare database operations
+        for (const [i, shopifyOrder] of allShopifyOrders.entries()) {
+            const orderId = `shopify-${shopifyOrder.id}`;
+            const existing = existingOrderMap.get(orderId);
+            
+            // Create items array from line_items
+            const items = (shopifyOrder.line_items || []).map(item => ({
+                marketplace: 'shopify',
+                line_item_id: item.id?.toString(),
+                product_id: item.product_id?.toString(),
+                variant_id: item.variant_id?.toString(),
+                sku: item.sku || `SHOPIFY-${item.product_id}-${item.variant_id}`,
+                quantity: item.quantity,
+                is_digital: item.requires_shipping === false
+            }));
+            
+            const update = {
+                $set: {
+                    order_id: orderId,
+                    marketplace: 'shopify',
+                    shopify_order_number: shopifyOrder.order_number?.toString() || shopifyOrder.name,
+                    order_date: new Date(shopifyOrder.created_at),
+                    buyer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
+                    receipt_id: orderId,
+                    items,
+                    shopify_order_data: shopifyOrder,
+                    last_updated: new Date()
+                }
+            };
+            
+            bulkOps.push({
+                updateOne: {
+                    filter: { order_id: orderId, marketplace: 'shopify' },
+                    update,
+                    upsert: true
+                }
             });
             
-            const skusToAdd = Array.from(newSkus).filter(item => !existingSkus.includes(item.sku));
-            
-            // Create new product entries for new SKUs
-            if (skusToAdd.length > 0) {
-                logger.info(`Found ${skusToAdd.length} new SKUs in Shopify orders to add to product database`);
-                
-                // Fetch product details for each new SKU
-                const productDetails = new Map();
-                
-                for (const item of skusToAdd) {
-                    if (item.product_id) {
-                        try {
-                            const productData = await shopify.product.get(item.product_id);
-                            productDetails.set(item.sku, productData);
-                        } catch (error) {
-                            logger.warn(`Could not fetch Shopify product details for ${item.product_id}:`, { 
-                                error: error.message 
-                            });
-                        }
-                    }
-                }
-                
-                // Create new product entries
-                const productUpdates = skusToAdd.map(item => {
-                    const productData = productDetails.get(item.sku);
-                    let variantData = null;
-                    
-                    // Find the correct variant if we have product data
-                    if (productData && item.variant_id) {
-                        variantData = productData.variants.find(v => 
-                            v.id.toString() === item.variant_id.toString()
-                        );
-                    }
-                    
-                    return {
-                        updateOne: {
-                            filter: { sku: item.sku },
-                            update: {
-                                $setOnInsert: {
-                                    sku: item.sku,
-                                    name: item.title || `Unknown Shopify Product (${item.sku})`,
-                                    quantity_on_hand: 0,
-                                    quantity_committed: 0
-                                },
-                                $set: {
-                                    raw_shopify_data: productData ? {
-                                        product: productData,
-                                        inventory: null,
-                                        last_raw_sync: new Date()
-                                    } : null,
-                                    shopify_data: productData ? {
-                                        product_id: productData.id.toString(),
-                                        variant_id: variantData?.id.toString(),
-                                        title: productData.title,
-                                        description: productData.body_html,
-                                        handle: productData.handle,
-                                        product_type: productData.product_type,
-                                        vendor: productData.vendor,
-                                        status: productData.status,
-                                        price: parseFloat(variantData?.price || 0),
-                                        inventory_quantity: parseInt(variantData?.inventory_quantity || 0, 10),
-                                        tags: productData.tags ? productData.tags.split(',').map(tag => tag.trim()) : [],
-                                        images: productData.images?.map(img => ({
-                                            url: img.src,
-                                            alt: img.alt || ''
-                                        })) || [],
-                                        last_synced: new Date()
-                                    } : {
-                                        product_id: item.product_id,
-                                        variant_id: item.variant_id,
-                                        title: item.title || `Unknown Shopify Product (${item.sku})`,
-                                        last_synced: new Date()
-                                    }
-                                }
-                            },
-                            upsert: true
-                        }
-                    };
-                });
-                
-                if (productUpdates.length > 0) {
-                    const result = await Product.bulkWrite(productUpdates);
-                    logger.info(`Added ${result.upsertedCount} new products from Shopify order SKUs`);
-                    req.flash('success', `Added ${result.upsertedCount} new products from Shopify order SKUs`);
-                }
+            // Track if this is new or updated
+            if (existing) {
+                updatedOrders++;
+            } else {
+                newOrders++;
             }
             
-            const successMessage = `Successfully synced ${newOrderCount} new and ${updatedOrderCount} existing Shopify orders`;
-            logger.info(successMessage);
-            req.flash('success', successMessage);
-
-            // Record successful sync time in Settings
-            await Settings.setSetting('lastShopifyOrderSync', new Date().toISOString());
-
-            res.redirect('/sync'); // Redirect back to sync page
-            
-        } catch (shopifyError) { // Catches errors during the Shopify API interaction/processing
-            logger.error('Shopify API error during order sync:', { error: shopifyError.message });
-            // Include the specific error message in the flash notification
-            req.flash('error', `Failed to sync Shopify orders: ${shopifyError.message}`);
-            res.redirect('/sync'); // Redirect back to sync page on API error
+            // Update progress periodically
+            if (i % 50 === 0 || i === allShopifyOrders.length - 1) {
+                updateSyncStatus(syncId, { 
+                    currentPhase: `Processing orders (${i + 1} of ${allShopifyOrders.length})`, 
+                    progress: 80 + Math.round(((i + 1) / allShopifyOrders.length) * 15), 
+                    processedCount: i + 1,
+                    totalCount: allShopifyOrders.length
+                });
+            }
         }
-    } catch (error) { // Catches errors from the outer try block (e.g., initial setup, client creation)
-        logger.error('Error in Shopify order sync setup:', { error: error.message });
-        // Include the specific error message in the flash notification
-        req.flash('error', `Error starting Shopify order sync: ${error.message}`);
-        res.redirect('/sync'); // Redirect back to sync page on setup error
+        
+        // Perform database operations
+        let result = { upsertedCount: 0, modifiedCount: 0, matchedCount: 0 };
+        
+        if (bulkOps.length > 0) {
+            updateSyncStatus(syncId, { 
+                currentPhase: 'Writing to database', 
+                progress: 97,
+                processedCount: allShopifyOrders.length,
+                totalCount: allShopifyOrders.length
+            });
+            
+            logger.info(`Writing ${bulkOps.length} order operations to database`, { syncId });
+            
+            // Perform the bulk write operation
+            result = await Order.bulkWrite(bulkOps, { ordered: false });
+            
+            logger.info('Database write complete', { 
+                syncId, 
+                totalOrders: allShopifyOrders.length,
+                upserted: result.upsertedCount, 
+                modified: result.modifiedCount, 
+                matched: result.matchedCount,
+                newOrders,
+                updatedOrders 
+            });
+        } else {
+            logger.info('No Shopify orders to update in database', { syncId });
+        }
+        
+        // Complete the sync with accurate counts
+        const counts = {
+            added: result.upsertedCount || 0,
+            updated: result.modifiedCount || 0,
+            total: allShopifyOrders.length
+        };
+        
+        completeSyncStatus(syncId, { 
+            counts,
+            processedCount: allShopifyOrders.length,
+            totalCount: allShopifyOrders.length
+        });
+        
+        // Update last sync time
+        await Settings.setSetting('lastShopifyOrderSync', new Date().toISOString());
+        
+        // Return response if this was called from an HTTP endpoint
+        if (res) {
+            res.json({ 
+                success: true, 
+                message: `Successfully synced ${allShopifyOrders.length} Shopify orders (${counts.added} new, ${counts.updated} updated).`,
+                syncId,
+                added: counts.added,
+                updated: counts.updated,
+                total: allShopifyOrders.length
+            });
+        }
+    } catch (error) {
+        logger.error('Error syncing Shopify orders:', { 
+            syncId, 
+            error: error.message, 
+            stack: error.stack 
+        });
+        
+        // Mark sync as failed
+        completeSyncStatus(syncId, {}, error);
+        
+        // Return error response if this was called from an HTTP endpoint
+        if (res) {
+            res.status(500).json({ 
+                success: false, 
+                error: error.message 
+            });
+        }
     } finally {
         const overallEndTime = performance.now();
-        logger.info(`[Perf] Overall syncShopifyOrders took ${(overallEndTime - overallStartTime).toFixed(2)}ms`);
+        logger.info(`[Perf] Overall syncShopifyOrders took ${(overallEndTime - overallStartTime).toFixed(2)}ms`, { syncId });
     }
+}
+
+// New Shopify order sync function
+async function syncShopifyOrders(req,res){
+    const BATCH_SIZE = 100; // Shopify API limit for orders
+    const ORDER_SYNC_DAYS = parseInt(process.env.ORDER_SYNC_DAYS || '90', 10);
+
+    const syncId = validateSyncId(req.query.syncId, 'shopify', 'orders');
+
+    // Initialize sync status
+    initializeSyncStatus(syncId, 'shopify', 'orders');
+    
+    try {
+        // get store api
+        const shopify = new Shopify({
+            shopName: process.env.SHOPIFY_SHOP_NAME,
+            accessToken: process.env.SHOPIFY_ACCESS_TOKEN
+        });
+
+        let allShopifyOrders = [];
+
+        // Calculate time stamp for specified days ago
+        const date = new Date();
+        date.setDate(date.getDate() - (process.env.ORDER_SYNC_DAYS ? parseInt(process.env.ORDER_SYNC_DAYS) : 90));
+        const formattedDate = date.toISOString();
+
+        const endQuery = `{
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+                nodes {
+                    id
+                    name
+                    totalPriceSet {
+                        shopMoney {
+                        amount
+                        currencyCode
+                        }
+                    }
+                    createdAt
+                    customer {
+                        id
+                        firstName
+                        lastName
+                    }
+                    lineItems(first: 250) {
+                        nodes {
+                            title
+                            quantity
+                            variant {
+                                sku
+                            }
+                        }
+                    }
+                }
+            }
+        }`;
+
+        let query = `{
+            orders(first: ${BATCH_SIZE}, query: "created_at:>=${formattedDate}") ${endQuery}`;
+
+        let result = await shopify.graphql(query);
+        
+        if (!result || !result.orders || !result.orders.nodes) {
+            logger.error('Error fetching orders from Shopify', { syncId });
+            throw new Error('Failed to fetch orders from Shopify');
+        }
+
+        let hasNextPage = result.orders.pageInfo.hasNextPage;
+        let endCursor = result.orders.pageInfo.endCursor;
+        let daysRunningTotal = 0;
+
+        while(hasNextPage) {
+            // Fetch next page of orders
+            hasNextPage = result.orders.pageInfo.hasNextPage;
+            endCursor = result.orders.pageInfo.endCursor;
+
+            query = `{
+                orders(first: ${BATCH_SIZE}, after: "${endCursor}", query: "created_at:>=${formattedDate}") ${endQuery}`;
+
+            const tempOrderCount = result.orders.nodes.length;
+            
+            if (tempOrderCount > 0) {
+                allShopifyOrders.push(...result.orders.nodes);
+                // Get date of first order in this batch
+                const firstOrderDate = new Date(result.orders.nodes[0].createdAt);
+
+                //Get date of last order in this batch
+                const lastOrderDate = new Date(result.orders.nodes[result.orders.nodes.length - 1].createdAt);
+                
+                // Calculate approximate number of orders per day
+                const daysPerBatch = (lastOrderDate - firstOrderDate) / (1000 * 60 * 60 * 24);
+
+                daysRunningTotal += daysPerBatch;
+                const averageOrdersPerDay = allShopifyOrders.length / daysRunningTotal;
+                
+                const daysRemaining = ORDER_SYNC_DAYS - daysRunningTotal;
+
+                const estimatedOrderQuantity = Math.round((averageOrdersPerDay * daysRemaining + allShopifyOrders.length) / BATCH_SIZE) * BATCH_SIZE; // Round to nearest batch size for better progress tracking
+
+                // Update sync status with progress
+                updateSyncStatus(syncId, { processedCount: allShopifyOrders.length, totalCount: `~${estimatedOrderQuantity}`, progress: 10 + Math.round((daysRunningTotal/ORDER_SYNC_DAYS) * 70) });
+                logger.info(`Fetched ${tempOrderCount} orders from Shopify`, { syncId });
+            }
+
+            result = await shopify.graphql(query);
+        }
+
+        logger.info(`Fetched ${allShopifyOrders.length} orders from Shopify`, { syncId });
+
+
+        // TODO: Process orders and prepare bulk operations
+
+        completeSyncStatus(syncId, { processedCount: allShopifyOrders.length, totalCount: allShopifyOrders.length });
+        logger.info(`Sync status updated for ${syncId}`, { syncId });
+        
+    } catch (error) {
+        logger.error('Error syncing Shopify orders:', { syncId, error: error.message, stack: error.stack });
+        completeSyncStatus(syncId, {}, error);
+        if (res) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    }  
 }
 
 // Route to check sync status
 router.get('/status/:syncId', (req, res) => {
     const syncId = req.params.syncId;
-    const status = syncStatus.get(syncId) || {
-        syncCount: 0,
-        counts: {
-            active: 0,
-            draft: 0,
-            expired: 0,
-            inactive: 0,
-            sold_out: 0
-        },
-        removedCount: 0,
-        progress: 0,
-        complete: false,
-        error: null
-    };
+    let status = syncStatus.get(syncId);
     
-    console.log(`Status request for syncId ${syncId}:`, status);
+    if (!status && syncStatus.size === 0) {
+        return res.status(404).json({ error: 'No ongoing sync for this syncId.' });
+    } else if (!status) {
+        status = syncStatus.entries().next().value[1]; // Get the first status object if no syncId is provided
+    }
     // Add processedCount and totalCount for frontend progress display
-    status.processedCount = status.syncCount || 0;
+    // status.processedCount = status.syncCount || 0;
     // Try to provide a real totalCount for product syncs
-    if (status.counts && typeof status.counts === 'object') {
-        // For product sync, try to sum all product states
-        const total = Object.values(status.counts).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
-        status.totalCount = total > 0 ? total : status.syncCount || 0;
-    } else {
-        status.totalCount = status.syncCount || 0;
-    }
-    // Always set processedCount and totalCount for frontend
-    status.processedCount = typeof status.syncCount === 'number' ? status.syncCount : 0;
-    if (status.counts && typeof status.counts === 'object') {
-        if ('added' in status.counts || 'updated' in status.counts) {
-            status.totalCount = 
-                (typeof status.counts.added === 'number' ? status.counts.added : 0) +
-                (typeof status.counts.updated === 'number' ? status.counts.updated : 0);
-        } else {
-            status.totalCount = Object.values(status.counts).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
-        }
-        if (!status.totalCount || status.totalCount < status.processedCount) {
-            status.totalCount = status.processedCount;
-        }
-    } else {
-        status.totalCount = status.processedCount;
-    }
+    // if (status.counts && typeof status.counts === 'object') {
+    //     // For product sync, try to sum all product states
+    //     const total = Object.values(status.counts).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+    //     status.totalCount = total > 0 ? total : status.syncCount || 0;
+    // } else if (status.counts && (status.counts > 0 || status.counts.length > 1)) {
+    //     status.totalCount = status.counts;
+    // } else {
+    //     status.totalCount = status.syncCount || 0;
+    // }
+    // // Always set processedCount and totalCount for frontend
+    // status.processedCount = typeof status.syncCount === 'number' ? status.syncCount : 0;
+    // if (status.counts && typeof status.counts === 'object') {
+    //     if ('added' in status.counts || 'updated' in status.counts) {
+    //         status.totalCount = 
+    //             (typeof status.counts.added === 'number' ? status.counts.added : 0) +
+    //             (typeof status.counts.updated === 'number' ? status.counts.updated : 0);
+    //     } else {
+    //         status.totalCount = Object.values(status.counts).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+    //     }
+    //     if (!status.totalCount || status.totalCount < status.processedCount) {
+    //         status.totalCount = status.processedCount;
+    //     }
+    // } else {
+    //     status.totalCount = status.processedCount;
+    // }
     res.json(status);
     
     // Clean up old status objects after 1 minutes
