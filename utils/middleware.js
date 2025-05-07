@@ -1,3 +1,9 @@
+/**
+ * Express middleware functions
+ * Provides common middleware for the Etsy Inventory application including
+ * flash message handling and authentication token management.
+ * @module utils/middleware
+ */
 const authService = require('./auth-service');
 const { logger } = require('./logger');
 
@@ -8,11 +14,11 @@ const { logger } = require('./logger');
  * @param {Function} next - Express next middleware function
  */
 function setupFlashMessages(req, res, next) {
-    res.locals.flashMessages = {
-        success: req.flash('success'),
-        error: req.flash('error')
-    };
-    next();
+	res.locals.flashMessages = {
+		success: req.flash('success'),
+		error: req.flash('error'),
+	};
+	next();
 }
 
 /**
@@ -22,27 +28,27 @@ function setupFlashMessages(req, res, next) {
  * @param {Function} next - Express next middleware function
  */
 async function refreshAuthToken(req, res, next) {
-    // Skip if no token data is available yet
-    if (!process.env.TOKEN_DATA) {
-        return next();
-    }
+	// Skip if no token data is available yet
+	if (!process.env.TOKEN_DATA) {
+		return next();
+	}
 
-    // Check if token is expired
-    if (authService.isTokenExpired()) {
-        try {
-            await authService.refreshToken();
-            next();
-        } catch (error) {
-            logger.error('Error refreshing token:', error);
-            // Continue without refreshing token, might redirect to auth later
-            next();
-        }
-    } else {
-        next();
-    }
+	// Check if token is expired
+	if (authService.isTokenExpired()) {
+		try {
+			await authService.refreshToken();
+			next();
+		} catch (error) {
+			logger.error('Error refreshing token:', error);
+			// Continue without refreshing token, might redirect to auth later
+			next();
+		}
+	} else {
+		next();
+	}
 }
 
 module.exports = {
-    setupFlashMessages,
-    refreshAuthToken
+	setupFlashMessages,
+	refreshAuthToken,
 };

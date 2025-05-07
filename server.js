@@ -1,3 +1,8 @@
+/**
+ * Main server application for Etsy Inventory Management
+ * Sets up Express server with middleware, templating engine, and routes
+ * @module server
+ */
 const express = require('express');
 const { engine } = require('express-handlebars');
 const dotenv = require('@dotenvx/dotenvx');
@@ -75,7 +80,13 @@ app.use('/inventory', inventoryRoutes);
 app.use('/sync', syncRoutes);
 app.use('/settings', settingsRoutes);
 
-// Dashboard route
+/**
+ * Main dashboard route
+ * Displays key metrics and recent activity
+ * @route GET /
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 app.get('/', async (req, res) => {
 	try {
 		const isAuthenticated = !authService.isTokenExpired();
@@ -98,6 +109,13 @@ app.get('/', async (req, res) => {
 });
 
 // Login/welcome page
+/**
+ * Welcome/login page route
+ * Entry point for unauthenticated users
+ * @route GET /welcome
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 app.get('/welcome', (req, res) => {
 	// Assuming welcome isn't a main nav item, pass null or omit activePage
 	res.render('welcome', {
@@ -107,12 +125,25 @@ app.get('/welcome', (req, res) => {
 });
 
 // Legacy index route, redirect to dashboard
+/**
+ * Legacy index route (redirects to dashboard)
+ * @route GET /index
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 app.get('/index', (req, res) => {
 	res.redirect('/');
 });
 
 const { etsyRequest } = require('./utils/etsy-request-pool');
 
+/**
+ * Health check endpoint for Etsy API connection
+ * Tests connection to Etsy API using the openapi-ping endpoint
+ * @route GET /ping
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 app.get('/ping', async (req, res) => {
 	try {
 		const response = await etsyRequest(
@@ -219,6 +250,15 @@ async function fetchDashboardData() {
 
 // Error Handling Middleware
 // Keep 4-argument signature for Express, but suppress unused warning
+/**
+ * Global error handling middleware
+ * Catches unhandled errors, logs them, and renders error page
+ *
+ * @param {Error} err - The error object
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ */
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
 	logger.error('Unhandled error:', {

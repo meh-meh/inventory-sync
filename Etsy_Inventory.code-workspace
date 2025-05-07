@@ -11,6 +11,6 @@
 		"diffEditor.codeLens": true,
 		"diffEditor.experimental.showMoves": true,
 		"diffEditor.experimental.useTrueInlineView": true,
-		"diffEditor.hideUnchangedRegions.enabled": false
+		"diffEditor.hideUnchangedRegions.enabled": true
 	}
 }
