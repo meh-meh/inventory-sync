@@ -80,9 +80,9 @@
                                         </span>
                                         <a href="/orders/{{this.order_id}}?marketplace={{../activeMarketplace}}">
                                             {{#if (eq this.marketplace 'etsy')}}
-                                                {{#if this.receipt_id}}#{{this.receipt_id}}{{else}}#{{this.order_id}}{{/if}}
+                                                {{#if this.receipt_id}}{{this.receipt_id}}{{else}}{{this.order_id}}{{/if}}
                                             {{else}}
-                                                {{#if this.shopify_order_number}}#{{this.shopify_order_number}}{{else}}#{{this.order_id}}{{/if}}
+                                                {{#if this.shopify_order_number}}{{this.shopify_order_number}}{{else}}{{this.order_id}}{{/if}}
                                             {{/if}}
                                         </a>
                                     </td>
@@ -141,9 +141,9 @@
                                         </span>
                                         <a href="/orders/{{this.order_id}}?marketplace={{../activeMarketplace}}">
                                             {{#if (eq this.marketplace 'etsy')}}
-                                                {{#if this.receipt_id}}#{{this.receipt_id}}{{else}}#{{this.order_id}}{{/if}}
+                                                {{#if this.receipt_id}}{{this.receipt_id}}{{else}}{{this.order_id}}{{/if}}
                                             {{else}}
-                                                {{#if this.shopify_order_number}}#{{this.shopify_order_number}}{{else}}#{{this.order_id}}{{/if}}
+                                                {{#if this.shopify_order_number}}{{this.shopify_order_number}}{{else}}{{this.order_id}}{{/if}}
                                             {{/if}}
                                         </a>
                                     </td>
@@ -201,9 +201,9 @@
                                         </span>
                                         <a href="/orders/{{this.order_id}}?marketplace={{../activeMarketplace}}">
                                             {{#if (eq this.marketplace 'etsy')}}
-                                                {{#if this.receipt_id}}#{{this.receipt_id}}{{else}}#{{this.order_id}}{{/if}}
+                                                {{#if this.receipt_id}}{{this.receipt_id}}{{else}}{{this.order_id}}{{/if}}
                                             {{else}}
-                                                {{#if this.shopify_order_number}}#{{this.shopify_order_number}}{{else}}#{{this.order_id}}{{/if}}
+                                                {{#if this.shopify_order_number}}{{this.shopify_order_number}}{{else}}{{this.order_id}}{{/if}}
                                             {{/if}}
                                         </a>
                                     </td>

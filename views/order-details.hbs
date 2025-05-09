@@ -24,9 +24,9 @@
                 </span>
                 Order 
                 {{#if (eq order.marketplace 'etsy')}}
-                    {{#if order.receipt_id}}#{{order.receipt_id}}{{else}}#{{order.order_id}}{{/if}}
+                    {{#if order.receipt_id}}{{order.receipt_id}}{{else}}{{order.order_id}}{{/if}}
                 {{else}}
-                    {{#if order.shopify_order_number}}#{{order.shopify_order_number}}{{else}}#{{order.order_id}}{{/if}}
+                    {{#if order.shopify_order_number}}{{order.shopify_order_number}}{{else}}{{order.order_id}}{{/if}}
                 {{/if}}
             </h2>
             <a href="/orders?marketplace={{activeMarketplace}}" class="btn btn-outline-secondary">Back to Orders</a>

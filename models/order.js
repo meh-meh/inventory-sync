@@ -33,7 +33,6 @@ const orderSchema = new mongoose.Schema({
 	status: {
 		type: String,
 		enum: ['unshipped', 'shipped'],
-		default: 'unshipped',
 	},
 	shipped_date: Date,
 	items: [orderItemSchema],
@@ -107,10 +106,10 @@ orderSchema.methods.updateFromEtsy = function (etsyData) {
 orderSchema.methods.updateFromShopify = function (shopifyData) {
 	// Update shipping status based on Shopify fulfillment status
 	this.shopify_fulfillment_status = shopifyData.fulfillment_status;
-	this.status = shopifyData.fulfillment_status === 'fulfilled' ? 'shipped' : 'unshipped';
+	this.status = shopifyData.fulfillment_status === 'FULFILLED' ? 'shipped' : 'unshipped';
 
 	// Clear shipped date if not shipped
-	if (shopifyData.fulfillment_status !== 'fulfilled') {
+	if (shopifyData.fulfillment_status !== 'FULFILLED') {
 		this.shipped_date = null;
 	} else if (shopifyData.fulfillments && shopifyData.fulfillments.length > 0) {
 		// Update shipped date from fulfillment

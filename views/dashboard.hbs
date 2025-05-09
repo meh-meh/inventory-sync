@@ -64,7 +64,7 @@
                             {{#each recentOrders}}
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
                                     <a href="/orders/{{this.order_id}}">
-                                        {{#if (eq this.marketplace 'etsy')}}#{{this.receipt_id}}{{else}}#{{this.shopify_order_number}}{{/if}}
+                                        {{#if (eq this.marketplace 'etsy')}}{{this.receipt_id}}{{else}}{{this.shopify_order_number}}{{/if}}
                                     </a>
                                     <span>{{formatDate this.order_date}}</span>
                                     <span class="badge {{#if (eq this.status 'shipped')}}bg-success{{else}}bg-secondary{{/if}}">{{this.status}}</span>

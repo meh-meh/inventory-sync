@@ -663,7 +663,7 @@ async function syncEtsyProducts(syncId, req) {
 		const { listings, counts } = await fetchAllListings(shop_id, syncId);
 		updateSyncStatus(syncId, {
 			counts,
-			syncCount: listings.length,
+			processedCount: listings.length,
 			progress: 30,
 			currentPhase: 'Processing listings',
 		});
@@ -778,6 +778,12 @@ async function syncEtsyProducts(syncId, req) {
 				});
 				continue;
 			}
+			updateSyncStatus(syncId, {
+				progress: 50,
+				currentPhase: 'Processing listings',
+				processedCount: bulkOps.length,
+				totalCount: listings.length,
+			});
 		}
 		const processEndTime = performance.now();
 		logger.info(
@@ -1479,7 +1485,8 @@ router.get('/sync-orders', async (req, res) => {
  * @throws {Error} - If there's an error during the synchronization process
  */
 async function syncEtsyOrders(req, res) {
-	//TODO: Update to resync all unshipped orders
+	// TODO: Update to resync all unshipped orders
+	// TODO: If is_shipped, set ship date to latest timestamp of transaction in the order.
 
 	const syncId = validateSyncId(req.query.syncId, 'etsy', 'orders');
 
@@ -1653,6 +1660,8 @@ async function syncEtsyOrders(req, res) {
 			const update = {
 				$set: {
 					etsy_order_data: etsyOrderData,
+					marketplace: 'etsy',
+					status: etsyOrderData.is_shipped ? 'shipped' : 'unshipped', // Status updated here
 					buyer_name: etsyOrderData.name || existing?.buyer_name || 'N/A',
 					order_date: orderDate,
 					receipt_id: receiptIdStr,
@@ -1666,15 +1675,12 @@ async function syncEtsyOrders(req, res) {
 					upsert: true,
 				},
 			});
-			// Update progress every 50 items
-			if (i % 50 === 0) {
-				updateSyncStatus(syncId, {
-					currentPhase: `Processing orders (${i + 1} of ${allOrders.length})`,
-					progress: 80 + Math.round(((i + 1) / allOrders.length) * 15),
-					syncCount: i + 1,
-					processedCount: i + 1,
-				});
-			}
+			updateSyncStatus(syncId, {
+				currentPhase: `Processing orders (${i + 1} of ${allOrders.length})`,
+				progress: 80 + Math.round(((i + 1) / allOrders.length) * 15),
+				syncCount: i + 1,
+				processedCount: i + 1,
+			});
 		}
 		let result = { upsertedCount: 0, modifiedCount: 0 };
 		if (bulkOps.length > 0) {
@@ -1756,6 +1762,7 @@ async function syncShopifyOrders(req, res) {
 		const formattedDate = date.toISOString();
 		logger.info(`Fetching Shopify orders created after: ${formattedDate}`, { syncId });
 
+		// TODO: Add ship date to query
 		// GraphQL fragment with fields to retrieve for each order
 		const orderFieldsFragment = `{
             pageInfo {
@@ -2001,6 +2008,10 @@ async function syncShopifyOrders(req, res) {
 							shopify_order_data: shopifyOrder,
 							financial_status: shopifyOrder.displayFinancialStatus,
 							fulfillment_status: shopifyOrder.displayFulfillmentStatus,
+							status:
+								shopifyOrder.displayFulfillmentStatus === 'FULFILLED'
+									? 'shipped'
+									: 'unshipped', // Status updated here
 							last_updated: new Date(),
 						},
 					};
