@@ -14,6 +14,8 @@ const upload = multer();
 const shopifyHelpers = require('../utils/shopify-helpers'); // Import shopify-helpers
 const { logger } = require('../utils/logger'); // Import logger
 const { etsyRequest } = require('../utils/etsy-request-pool'); // Import etsyRequest
+// const Settings = require('../models/settings'); // Settings model is not used directly in this file anymore
+const { startOrReconfigureScheduler } = require('../utils/scheduler'); // Import scheduler function
 
 /**
  * Safely parses a number from an environment variable string
@@ -200,6 +202,9 @@ router.post('/general', async (req, res) => {
 			process.env.AUTO_SYNC_INTERVAL = valuesToSave.AUTO_SYNC_INTERVAL;
 			process.env.NOTIFICATIONS_ENABLED = valuesToSave.NOTIFICATIONS_ENABLED;
 			logger.debug('Updated process.env in memory');
+
+			// Reconfigure the scheduler after settings change
+			await startOrReconfigureScheduler();
 
 			logger.info('General settings updated successfully.');
 			req.flash('success', 'General settings saved successfully.');
@@ -388,6 +393,10 @@ router.post('/advanced', upload.none(), async (req, res) => {
 
 		process.env.AUTO_SYNC_ENABLED = autoSyncValue;
 		// process.env.SYNC_INTERVAL_MINUTES = parsedInterval.toString(); // REMOVED
+
+		// Reconfigure the scheduler if relevant settings changed (e.g., if interval was here)
+		// For now, AUTO_SYNC_INTERVAL is in /general, but if it moved or other relevant settings are here:
+		await startOrReconfigureScheduler();
 
 		logger.info('Advanced settings updated successfully.');
 		req.flash('success', 'Advanced settings saved successfully.');

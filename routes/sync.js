@@ -2133,9 +2133,59 @@ async function syncShopifyOrders(req, res) {
 }
 
 /**
+ * Performs a full synchronization of products for both Etsy and Shopify.
+ * This function is intended to be called by the scheduler.
+ */
+async function performFullSync() {
+	logger.info('Starting performFullSync...');
+	const etsySyncId = validateSyncId(null, 'etsy', 'products-auto');
+	const shopifySyncId = validateSyncId(null, 'shopify', 'products-auto');
+
+	try {
+		logger.info('Starting automatic Etsy product sync...', { syncId: etsySyncId });
+		// Initialize status for this specific sync operation if your functions expect it
+		initializeSyncStatus(etsySyncId, 'etsy', 'products-auto');
+		await syncEtsyProducts(etsySyncId, null); // Pass null for req as it's a background task
+		logger.info('Automatic Etsy product sync completed.', { syncId: etsySyncId });
+	} catch (error) {
+		logger.error('Error during automatic Etsy product sync:', {
+			syncId: etsySyncId,
+			errorMessage: error.message,
+			stack: error.stack,
+		});
+		// Ensure sync status is marked as complete with error for Etsy sync
+		completeSyncStatus(etsySyncId, {}, error);
+	}
+
+	// Optional: Add a delay here if needed before starting Shopify sync
+	// await new Promise(resolve => setTimeout(resolve, 60000)); // e.g., 1 minute delay
+
+	try {
+		logger.info('Starting automatic Shopify product sync...', { syncId: shopifySyncId });
+		// Initialize status for this specific sync operation
+		initializeSyncStatus(shopifySyncId, 'shopify', 'products-auto');
+		await syncShopifyProducts(shopifySyncId, null); // Pass null for req
+		logger.info('Automatic Shopify product sync completed.', { syncId: shopifySyncId });
+	} catch (error) {
+		logger.error('Error during automatic Shopify product sync:', {
+			syncId: shopifySyncId,
+			errorMessage: error.message,
+			stack: error.stack,
+		});
+		// Ensure sync status is marked as complete with error for Shopify sync
+		completeSyncStatus(shopifySyncId, {}, error);
+	}
+
+	// Note: Order syncing (syncEtsyOrders, syncShopifyOrders) is not included here yet
+	// as they are currently structured as route handlers and would need refactoring
+	// to be called directly by a background scheduler without an HTTP request/response context.
+
+	logger.info('performFullSync completed.');
+}
+
+/**
  * Route to check the status of a sync operation
  * Returns the current status of the sync with the specified ID
- *
  * @route GET /sync/status/:syncId
  * @param {string} req.params.syncId - The unique ID of the sync operation to check
  * @returns {Object} JSON object with the current sync status
@@ -2149,7 +2199,6 @@ router.get('/status/:syncId', (req, res) => {
 	} else if (!status) {
 		status = syncStatus.entries().next().value[1]; // Get the first status object if no syncId is provided
 	}
-
 	res.json(status);
 
 	// Clean up old status objects after 1 minutes
@@ -2160,4 +2209,16 @@ router.get('/status/:syncId', (req, res) => {
 	}
 });
 
+// Export the router as the default export
 module.exports = router;
+
+// Also attach the utility functions as properties of the router
+router.syncEtsyProducts = syncEtsyProducts;
+router.syncShopifyProducts = syncShopifyProducts;
+router.syncEtsyOrders = syncEtsyOrders;
+router.syncShopifyOrders = syncShopifyOrders;
+router.performFullSync = performFullSync;
+router.initializeSyncStatus = initializeSyncStatus;
+router.updateSyncStatus = updateSyncStatus;
+router.completeSyncStatus = completeSyncStatus;
+router.validateSyncId = validateSyncId;

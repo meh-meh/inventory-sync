@@ -1,9 +1,7 @@
 const cron = require('node-cron');
 const { logger } = require('./logger');
-// Assume performFullSync will be available from routes/sync.js or a dedicated sync service
-// For now, let's try to require it from routes/sync.js, assuming it exports such a function.
-// This might need adjustment based on the actual structure of routes/sync.js.
-const { performFullSync } = require('../routes/sync'); // Placeholder - adjust if necessary
+// Import performFullSync from routes/sync.js
+const { performFullSync } = require('../routes/sync');
 
 let scheduledTask = null;
 

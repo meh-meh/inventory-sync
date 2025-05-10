@@ -32,6 +32,7 @@ const settingsRoutes = require('./routes/settings');
 const configHandlebarsHelpers = require('./utils/handlebars-helpers');
 const { setupFlashMessages, refreshAuthToken } = require('./utils/middleware');
 const authService = require('./utils/auth-service');
+const { startOrReconfigureScheduler } = require('./utils/scheduler'); // Import the scheduler function
 
 // Database connection
 require('./config/database');
@@ -56,6 +57,9 @@ app.set('views', path.join(process.cwd(), 'views'));
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // Add this line to parse form data
+
+// Serve static files from assets directory
+app.use('/assets', express.static(path.join(process.cwd(), 'assets')));
 
 // Session middleware
 app.use(
@@ -283,8 +287,11 @@ module.exports = app;
 // Start the server if not being required as a module
 if (require.main === module) {
 	const port = process.env.PORT || 3003;
-	app.listen(port, () => {
+	app.listen(port, async () => {
 		logger.info(`Server listening on port ${port}`);
-		logger.info('==================== SERVER READY =====================');
+
+		// Start the scheduler after settings are loaded and server is running
+		await startOrReconfigureScheduler();
+		logger.info('Scheduler initialized.');
 	});
 }

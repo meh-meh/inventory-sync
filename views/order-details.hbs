@@ -6,10 +6,18 @@
     <style>
         /* Keep specific styles for this view */
         .marketplace-badge {
+            display: inline-flex;
+            align-items: center;
+            vertical-align: middle;
             font-size: 0.8em;
             padding: 2px 5px;
             border-radius: 3px;
             margin-right: 5px;
+        }
+        .marketplace-badge img {
+            height: 32px;
+            width: auto;
+            margin-right: 4px;
         }
         .etsy-badge { background-color: #F56400; color: white; }
         .shopify-badge { background-color: #96BF48; color: white; }
@@ -19,8 +27,12 @@
     <div class="container mt-4">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h2>
-                <span class="marketplace-badge {{#if (eq order.marketplace 'etsy')}}etsy-badge{{else}}shopify-badge{{/if}}">
-                    {{#if (eq order.marketplace 'etsy')}}Etsy{{else}}Shopify{{/if}}
+                <span class="marketplace-badge">
+                    {{#if (eq order.marketplace 'etsy')}}
+                        <img src="/assets/etsy_switcher.png" alt="Etsy logo">
+                    {{else}}
+                        <img src="/assets/shopify.svg" alt="Shopify logo">
+                    {{/if}}
                 </span>
                 Order 
                 {{#if (eq order.marketplace 'etsy')}}

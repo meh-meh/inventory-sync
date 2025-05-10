@@ -3,16 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <title>Order Management</title>
-    <style>
-        /* Keep specific styles for this view */
+    <style>        /* Keep specific styles for this view */
         .marketplace-badge {
+            display: inline-flex;
+            align-items: center;
+            vertical-align: middle;
             font-size: 0.7em;
             padding: 2px 5px;
             border-radius: 3px;
             margin-right: 5px;
         }
-        .etsy-badge { background-color: #F56400; color: white; }
-        .shopify-badge { background-color: #96BF48; color: white; }
+        .marketplace-badge img {
+            height: 24px;
+            width: auto;
+            margin-right: 4px;
+        }
     </style>
 </head>
 <body>
@@ -75,8 +80,12 @@
                                 {{#each unshippedOrders}}
                                 <tr>
                                     <td>
-                                        <span class="marketplace-badge {{#if (eq this.marketplace 'etsy')}}etsy-badge{{else}}shopify-badge{{/if}}">
-                                            {{#if (eq this.marketplace 'etsy')}}Etsy{{else}}Shopify{{/if}}
+                                        <span class="marketplace-badge">
+                                            {{#if (eq this.marketplace 'etsy')}}
+                                                <img src="/assets/etsy_switcher.png" alt="Etsy logo">
+                                            {{else}}
+                                                <img src="/assets/shopify.svg" alt="Shopify logo">
+                                            {{/if}}
                                         </span>
                                         <a href="/orders/{{this.order_id}}?marketplace={{../activeMarketplace}}">
                                             {{#if (eq this.marketplace 'etsy')}}
@@ -136,8 +145,12 @@
                                 {{#each recentShippedOrders}}
                                 <tr>
                                     <td>
-                                        <span class="marketplace-badge {{#if (eq this.marketplace 'etsy')}}etsy-badge{{else}}shopify-badge{{/if}}">
-                                            {{#if (eq this.marketplace 'etsy')}}Etsy{{else}}Shopify{{/if}}
+                                        <span class="marketplace-badge">
+                                            {{#if (eq this.marketplace 'etsy')}}
+                                                <img src="/assets/etsy_switcher.png" alt="Etsy logo">
+                                            {{else}}
+                                                <img src="/assets/shopify.svg" alt="Shopify logo">
+                                            {{/if}}
                                         </span>
                                         <a href="/orders/{{this.order_id}}?marketplace={{../activeMarketplace}}">
                                             {{#if (eq this.marketplace 'etsy')}}
@@ -196,8 +209,12 @@
                                 {{#each cancelledOrders}}
                                 <tr>
                                     <td>
-                                        <span class="marketplace-badge {{#if (eq this.marketplace 'etsy')}}etsy-badge{{else}}shopify-badge{{/if}}">
-                                            {{#if (eq this.marketplace 'etsy')}}Etsy{{else}}Shopify{{/if}}
+                                        <span class="marketplace-badge">
+                                            {{#if (eq this.marketplace 'etsy')}}
+                                                <img src="/assets/etsy_switcher.png" alt="Etsy logo">
+                                            {{else}}
+                                                <img src="/assets/shopify.svg" alt="Shopify logo">
+                                            {{/if}}
                                         </span>
                                         <a href="/orders/{{this.order_id}}?marketplace={{../activeMarketplace}}">
                                             {{#if (eq this.marketplace 'etsy')}}
