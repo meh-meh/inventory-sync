@@ -102,34 +102,34 @@ async function verifyAuthentication() {
  * @returns {Promise<void>} A promise that resolves when the sync completes.
  */
 async function runManualSync(skipAuthCheck = false) {
-    logger.info('Starting manual synchronization...');
-    try {
-        let isAuthenticated = true;
-        
-        // Skip authentication check if requested
-        if (!skipAuthCheck) {
-            isAuthenticated = await verifyAuthentication();
-        } else {
-            logger.info('Skipping authentication check as requested');
-        }
+	logger.info('Starting manual synchronization...');
+	try {
+		let isAuthenticated = true;
 
-        if (!isAuthenticated) {
-            logger.warn('Skipping manual sync due to authentication issues');
-            return;
-        }
+		// Skip authentication check if requested
+		if (!skipAuthCheck) {
+			isAuthenticated = await verifyAuthentication();
+		} else {
+			logger.info('Skipping authentication check as requested');
+		}
 
-        if (typeof performFullSync === 'function') {
-            await performFullSync();
-            logger.info('Manual synchronization completed successfully.');
-        } else {
-            logger.error('performFullSync function is not available. Manual sync cannot run.');
-        }
-    } catch (error) {
-        logger.error('Error during manual synchronization:', {
-            errorMessage: error.message,
-            stack: error.stack,
-        });
-    }
+		if (!isAuthenticated) {
+			logger.warn('Skipping manual sync due to authentication issues');
+			return;
+		}
+
+		if (typeof performFullSync === 'function') {
+			await performFullSync();
+			logger.info('Manual synchronization completed successfully.');
+		} else {
+			logger.error('performFullSync function is not available. Manual sync cannot run.');
+		}
+	} catch (error) {
+		logger.error('Error during manual synchronization:', {
+			errorMessage: error.message,
+			stack: error.stack,
+		});
+	}
 }
 
 /**

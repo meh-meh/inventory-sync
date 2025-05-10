@@ -19,18 +19,25 @@ const { etsyRequest } = require('../utils/etsy-request-pool');
  * @param {Object} res - Express response object
  */
 router.get('/:id', async (req, res) => {
-	try {		// First try to find by order_id (new schema)
+	try {
+		// First try to find by order_id (new schema)
 		const idParam = req.params.id;
-		let order = await Order.findOne({ order_id: idParam }).maxTimeMS(10000).lean({ virtuals: true });
+		let order = await Order.findOne({ order_id: idParam })
+			.maxTimeMS(10000)
+			.lean({ virtuals: true });
 
 		// If not found, try to find by receipt_id (old Etsy schema)
 		if (!order) {
-			order = await Order.findOne({ receipt_id: idParam }).maxTimeMS(10000).lean({ virtuals: true });
+			order = await Order.findOne({ receipt_id: idParam })
+				.maxTimeMS(10000)
+				.lean({ virtuals: true });
 		}
 
 		// If still not found, try to find by Shopify order number
 		if (!order) {
-			order = await Order.findOne({ shopify_order_number: idParam }).maxTimeMS(10000).lean({ virtuals: true });
+			order = await Order.findOne({ shopify_order_number: idParam })
+				.maxTimeMS(10000)
+				.lean({ virtuals: true });
 		}
 
 		if (!order) {

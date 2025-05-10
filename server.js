@@ -185,7 +185,7 @@ async function fetchDashboardData(useCache = true) {
 	const cache = require('./utils/cache');
 	const CACHE_KEY = 'dashboard_data';
 	const CACHE_TTL = 300; // 5 minutes
-	
+
 	// Try to get from cache first
 	if (useCache) {
 		const cachedData = cache.get(CACHE_KEY);
@@ -193,7 +193,7 @@ async function fetchDashboardData(useCache = true) {
 			return cachedData;
 		}
 	}
-	
+
 	// Cache miss or bypass, fetch fresh data
 	const [
 		totalProducts,
@@ -227,7 +227,9 @@ async function fetchDashboardData(useCache = true) {
 					parseInt(process.env.LOW_STOCK_THRESHOLD || 5),
 				],
 			},
-		}).maxTimeMS(10000).limit(10),
+		})
+			.maxTimeMS(10000)
+			.limit(10),
 		Order.find({
 			status: 'unshipped', // Use the unified status field
 			items: { $elemMatch: { is_digital: false } },
@@ -265,7 +267,7 @@ async function fetchDashboardData(useCache = true) {
 		lowStockItems: lowStockWithStatus,
 		recentOrders,
 	};
-	
+
 	// Cache the data for future requests
 	if (useCache) {
 		cache.set(CACHE_KEY, dashboardData, CACHE_TTL);
