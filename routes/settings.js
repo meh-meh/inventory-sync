@@ -54,7 +54,8 @@ router.get('/', async (req, res) => {
 	try {
 		// Get connected marketplace info
 		const etsyConnected = !!process.env.TOKEN_DATA;
-		const shopifyConnected = !!process.env.SHOPIFY_ACCESS_TOKEN;
+		const shopifyConnected =
+			!!process.env.SHOPIFY_ACCESS_TOKEN && !!process.env.SHOPIFY_SHOP_NAME;
 
 		// Get shop info if connected
 		let etsyShopId = null;
@@ -62,7 +63,7 @@ router.get('/', async (req, res) => {
 
 		if (etsyConnected) {
 			try {
-				etsyShopId = await getShopId();
+				etsyShopId = await getShopId(); // This might already be in process.env.ETSY_SHOP_ID
 
 				// Try to get the shop name
 				const tokenData = JSON.parse(process.env.TOKEN_DATA);
@@ -80,34 +81,34 @@ router.get('/', async (req, res) => {
 				if (response.ok) {
 					const shopData = await response.json();
 					etsyShopName = shopData.shop_name;
-
-					// Ensure api_key is encrypted in the .env file
-					dotenv.set('ETSY_API_KEY', process.env.ETSY_API_KEY, { encrypt: true });
+					// REMOVED: dotenv.set('ETSY_API_KEY', process.env.ETSY_API_KEY, { encrypt: true });
 				}
 			} catch (error) {
-				// Use logger instead of console.error
 				logger.error('Error fetching Etsy shop details:', { error: error.message });
 			}
 		}
 
 		// Get current settings with safe parsing and defaults
 		const settings = {
-			defaultView: process.env.DEFAULT_VIEW || 'gallery', // Added defaultView
+			defaultView: process.env.DEFAULT_VIEW || 'gallery',
 			lowStockThreshold: safeParseInt(process.env.LOW_STOCK_THRESHOLD, 5),
 			orderSyncDays: safeParseInt(process.env.ORDER_SYNC_DAYS, 90),
 			autoSyncEnabled: safeParseBool(process.env.AUTO_SYNC_ENABLED, false),
-			autoSyncInterval: safeParseInt(process.env.AUTO_SYNC_INTERVAL, 24),
+			autoSyncInterval: safeParseInt(process.env.AUTO_SYNC_INTERVAL, 24), // General setting in hours
 			notificationsEnabled: safeParseBool(process.env.NOTIFICATIONS_ENABLED, false),
+			// syncIntervalMinutes: safeParseInt(process.env.SYNC_INTERVAL_MINUTES, 30), // REMOVED Advanced setting in minutes
 		};
 
 		res.render('settings', {
-			settings, // Pass the whole settings object
+			settings,
 			etsyShopId,
 			etsyShopName,
+			etsyApiKey: process.env.ETSY_API_KEY,
 			shopifyShopName: process.env.SHOPIFY_SHOP_NAME || null,
+			shopifyApiKey: process.env.SHOPIFY_ACCESS_TOKEN,
 			etsyConnected,
 			shopifyConnected,
-			activePage: 'settings', // Add activePage
+			activePage: 'settings',
 		});
 	} catch (error) {
 		logger.error('Error loading settings:', { error: error.message, stack: error.stack });
@@ -121,6 +122,7 @@ router.get('/', async (req, res) => {
 				autoSyncEnabled: false,
 				autoSyncInterval: 24,
 				notificationsEnabled: false,
+				// syncIntervalMinutes: 30, // REMOVED
 			},
 			activePage: 'settings',
 		});
@@ -209,14 +211,194 @@ router.post('/general', async (req, res) => {
 			req.flash('error', 'Failed to save one or more settings.');
 		}
 
-		res.redirect('/settings');
+		res.redirect('/settings#general');
 	} catch (error) {
 		logger.error('Error saving general settings:', {
 			error: error.message,
 			stack: error.stack,
 		});
 		req.flash('error', 'Failed to save general settings.');
-		res.redirect('/settings');
+		res.redirect('/settings#general');
+	}
+});
+
+/**
+ * Save Etsy API credentials
+ * Updates environment variables with Etsy API Key
+ * @route POST /settings/etsy
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Form data containing settings values
+ * @param {string} req.body.etsyApiKey - Etsy API Key (keystring)
+ * @param {Object} res - Express response object
+ * @returns {void} Redirects back to settings page
+ */
+router.post('/etsy', upload.none(), async (req, res) => {
+	try {
+		const { etsyApiKey } = req.body;
+
+		if (!etsyApiKey) {
+			req.flash('error', 'Etsy API Key is required.');
+			return res.redirect('/settings#etsy');
+		}
+
+		// Validate if the key "looks" like a keystring (e.g., basic length check or pattern)
+		// For Etsy, keystrings are typically alphanumeric and a certain length.
+		// This is a basic check; more sophisticated validation might be needed.
+		if (etsyApiKey.length < 20 || !/^[a-zA-Z0-9._-]+$/.test(etsyApiKey)) {
+			// Adjusted regex to be more permissive for typical API key characters
+			req.flash('error', 'Invalid Etsy API Key format.');
+			return res.redirect('/settings#etsy');
+		}
+
+		await dotenv.set('ETSY_API_KEY', etsyApiKey, { encrypt: true });
+		process.env.ETSY_API_KEY = etsyApiKey;
+
+		logger.info('Etsy API Key updated successfully.');
+		req.flash(
+			'success',
+			'Etsy API Key saved successfully. Please reconnect to Etsy if you were previously connected.'
+		);
+		res.redirect('/settings#etsy');
+	} catch (error) {
+		logger.error('Error saving Etsy API Key:', {
+			error: error.message,
+			stack: error.stack,
+		});
+		req.flash('error', 'Failed to save Etsy API Key.');
+		res.redirect('/settings#etsy');
+	}
+});
+
+/**
+ * Save Shopify API credentials
+ * Updates environment variables with Shopify Shop Name and Admin API Access Token
+ * @route POST /settings/shopify
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Form data containing settings values
+ * @param {string} req.body.shopifyShopName - Shopify Shop Name
+ * @param {string} req.body.shopifyApiKey - Shopify Admin API Access Token
+ * @param {Object} res - Express response object
+ * @returns {void} Redirects back to settings page
+ */
+router.post('/shopify', upload.none(), async (req, res) => {
+	try {
+		const { shopifyShopName, shopifyApiKey } = req.body;
+
+		if (!shopifyShopName || !shopifyApiKey) {
+			req.flash('error', 'Shopify Shop Name and Admin API Access Token are required.');
+			return res.redirect('/settings#shopify');
+		}
+
+		const cleanShopName = shopifyShopName
+			.replace(/^https?:\/\//i, '')
+			.replace(/\.myshopify\.com\/?$/i, '');
+
+		// Temporarily set env vars for testing connection by shopifyHelpers
+		const oldShopEnv = process.env.SHOPIFY_SHOP;
+		const oldTokenEnv = process.env.SHOPIFY_ACCESS_TOKEN;
+		process.env.SHOPIFY_SHOP = cleanShopName;
+		process.env.SHOPIFY_ACCESS_TOKEN = shopifyApiKey;
+
+		try {
+			await shopifyHelpers.getShopInfo(); // Test connection
+			logger.info('Shopify credentials validated successfully with API.');
+
+			// Save credentials after successful validation
+			await dotenv.set('SHOPIFY_SHOP_NAME', cleanShopName, { encrypt: false }); // Shop name is not typically sensitive
+			await dotenv.set('SHOPIFY_ACCESS_TOKEN', shopifyApiKey, { encrypt: true });
+
+			// Update process.env for current session
+			process.env.SHOPIFY_SHOP_NAME = cleanShopName;
+			// process.env.SHOPIFY_ACCESS_TOKEN is already set from the test
+
+			logger.info('Shopify credentials updated successfully.');
+			req.flash(
+				'success',
+				'Shopify credentials saved successfully. You may need to reconnect if you were previously connected with different credentials.'
+			);
+		} catch (apiError) {
+			logger.error('Shopify API connection error during credential save:', {
+				error: apiError.message,
+			});
+			// Restore old env vars if test failed
+			process.env.SHOPIFY_SHOP = oldShopEnv;
+			process.env.SHOPIFY_ACCESS_TOKEN = oldTokenEnv;
+			req.flash(
+				'error',
+				'Failed to connect to Shopify with new credentials. Please verify your shop name and access token.'
+			);
+		} finally {
+			// Ensure SHOPIFY_SHOP and SHOPIFY_ACCESS_TOKEN are correctly set to the new values if successful,
+			// or restored if failed and they were defined before.
+			if (
+				process.env.SHOPIFY_SHOP_NAME === cleanShopName &&
+				process.env.SHOPIFY_ACCESS_TOKEN === shopifyApiKey
+			) {
+				// If successful, ensure SHOPIFY_SHOP is also updated for helpers
+				process.env.SHOPIFY_SHOP = cleanShopName;
+			} else {
+				// If failed, restore original values if they existed
+				if (oldShopEnv !== undefined) process.env.SHOPIFY_SHOP = oldShopEnv;
+				else delete process.env.SHOPIFY_SHOP;
+				if (oldTokenEnv !== undefined) process.env.SHOPIFY_ACCESS_TOKEN = oldTokenEnv;
+				else delete process.env.SHOPIFY_ACCESS_TOKEN;
+			}
+		}
+		res.redirect('/settings#shopify');
+	} catch (error) {
+		logger.error('Error saving Shopify credentials:', {
+			error: error.message,
+			stack: error.stack,
+		});
+		req.flash('error', 'Failed to save Shopify credentials.');
+		res.redirect('/settings#shopify');
+	}
+});
+
+/**
+ * Save Advanced application settings
+ * Updates environment variables with user preferences for sync
+ * @route POST /settings/advanced
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Form data containing settings values
+ * @param {string} req.body.autoSyncEnabled - Whether automatic sync is enabled
+ * @param {Object} res - Express response object
+ * @returns {void} Redirects back to settings page
+ */
+router.post('/advanced', upload.none(), async (req, res) => {
+	try {
+		logger.debug('Received advanced settings form data:', req.body);
+
+		const { autoSyncEnabled /*, syncInterval*/ } = req.body; // syncInterval removed
+
+		const autoSyncValue = autoSyncEnabled === 'on' ? 'true' : 'false';
+		// const syncIntervalValue = syncInterval || '30'; // REMOVED: Default to 30 minutes if not provided
+
+		// REMOVED: Validate syncIntervalValue is a number and within a reasonable range (e.g., >= 5 minutes)
+		// const parsedInterval = parseInt(syncIntervalValue, 10);
+		// if (isNaN(parsedInterval) || parsedInterval < 5) {
+		// 	req.flash('error', 'Invalid Sync Interval. Must be a number and at least 5 minutes.');
+		// 	return res.redirect('/settings#advanced');
+		// }
+
+		// Note: AUTO_SYNC_ENABLED is also set in general settings.
+		// This will overwrite the general AUTO_SYNC_ENABLED.
+		await dotenv.set('AUTO_SYNC_ENABLED', autoSyncValue, { encrypt: false });
+		// await dotenv.set('SYNC_INTERVAL_MINUTES', parsedInterval.toString(), { encrypt: false }); // REMOVED
+
+		process.env.AUTO_SYNC_ENABLED = autoSyncValue;
+		// process.env.SYNC_INTERVAL_MINUTES = parsedInterval.toString(); // REMOVED
+
+		logger.info('Advanced settings updated successfully.');
+		req.flash('success', 'Advanced settings saved successfully.');
+		res.redirect('/settings#advanced');
+	} catch (error) {
+		logger.error('Error saving advanced settings:', {
+			error: error.message,
+			stack: error.stack,
+		});
+		req.flash('error', 'Failed to save advanced settings.');
+		res.redirect('/settings#advanced');
 	}
 });
 
@@ -276,12 +458,12 @@ router.post('/disconnect-etsy', async (req, res) => {
 		process.env.ETSY_SHOP_ID = '';
 
 		req.flash('success', 'Successfully disconnected from Etsy');
-		res.redirect('/settings');
+		res.redirect('/settings#etsy');
 	} catch (error) {
 		// Use logger instead of console.error
 		logger.error('Error disconnecting Etsy:', { error: error.message, stack: error.stack });
 		req.flash('error', 'Failed to disconnect from Etsy');
-		res.redirect('/settings');
+		res.redirect('/settings#etsy');
 	}
 });
 
@@ -303,7 +485,8 @@ router.post('/connect-shopify', upload.none(), async (req, res) => {
 		// Validate input
 		if (!shopName || !accessToken) {
 			req.flash('error', 'Shop name and access token are required');
-			return res.redirect('/settings');
+			// Ensure redirect goes to the Shopify tab
+			return res.redirect('/settings#shopify');
 		}
 
 		// Clean shop name - remove https:// and .myshopify.com if present
@@ -336,7 +519,8 @@ router.post('/connect-shopify', upload.none(), async (req, res) => {
 			if (req.xhr || req.headers.accept?.includes('json')) {
 				return res.json({ success: true, shopName: shopInfo.name });
 			} else {
-				return res.redirect('/settings');
+				// Ensure redirect goes to the Shopify tab
+				return res.redirect('/settings#shopify');
 			}
 		} catch (apiError) {
 			// Use logger.error instead of console.error
@@ -354,7 +538,8 @@ router.post('/connect-shopify', upload.none(), async (req, res) => {
 					'error',
 					'Failed to connect to Shopify. Please verify your shop name and access token.'
 				);
-				return res.redirect('/settings');
+				// Ensure redirect goes to the Shopify tab
+				return res.redirect('/settings#shopify');
 			}
 		}
 	} catch (error) {
@@ -369,7 +554,8 @@ router.post('/connect-shopify', upload.none(), async (req, res) => {
 			});
 		} else {
 			req.flash('error', 'An error occurred while connecting to Shopify');
-			return res.redirect('/settings');
+			// Ensure redirect goes to the Shopify tab
+			return res.redirect('/settings#shopify');
 		}
 	}
 });
@@ -393,12 +579,14 @@ router.post('/disconnect-shopify', async (req, res) => {
 		process.env.SHOPIFY_ACCESS_TOKEN = '';
 
 		req.flash('success', 'Successfully disconnected from Shopify');
-		res.redirect('/settings');
+		// Ensure redirect goes to the Shopify tab
+		res.redirect('/settings#shopify');
 	} catch (error) {
 		// Use logger.error instead of console.error
 		logger.error('Error disconnecting Shopify:', { error: error.message, stack: error.stack });
 		req.flash('error', 'Failed to disconnect from Shopify');
-		res.redirect('/settings');
+		// Ensure redirect goes to the Shopify tab
+		res.redirect('/settings#shopify');
 	}
 });
 
