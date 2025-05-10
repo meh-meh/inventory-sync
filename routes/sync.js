@@ -176,7 +176,6 @@ router.get('/', async (req, res) => {
 		const shopifySyncTime = await Settings.getSetting('lastShopifyOrderSync');
 		const etsyProductSyncTime = await Settings.getSetting('lastEtsyProductSync');
 		const shopifyProductSyncTime = await Settings.getSetting('lastShopifyProductSync');
-
 		const [
 			totalProducts,
 			productsWithEtsy,
@@ -186,28 +185,34 @@ router.get('/', async (req, res) => {
 			lastEtsyOrderSyncDoc, // Added for Etsy order sync time
 			lastShopifyOrderSyncDoc, // Added for Shopify order sync time
 		] = await Promise.all([
-			Product.countDocuments(),
-			Product.countDocuments({ 'etsy_data.listing_id': { $exists: true } }),
-			Product.countDocuments({ 'shopify_data.product_id': { $exists: true } }),
+			Product.countDocuments().maxTimeMS(10000),
+			Product.countDocuments({ 'etsy_data.listing_id': { $exists: true } }).maxTimeMS(10000),
+			Product.countDocuments({ 'shopify_data.product_id': { $exists: true } }).maxTimeMS(
+				10000
+			),
 			// Find latest product sync time (Etsy)
 			Product.findOne({ 'etsy_data.last_synced': { $exists: true } })
 				.sort({ 'etsy_data.last_synced': -1 })
 				.select('etsy_data.last_synced')
+				.maxTimeMS(10000)
 				.lean(), // Use lean for performance
 			// Find latest product sync time (Shopify)
 			Product.findOne({ 'shopify_data.last_synced': { $exists: true } })
 				.sort({ 'shopify_data.last_synced': -1 })
 				.select('shopify_data.last_synced')
+				.maxTimeMS(10000)
 				.lean(), // Use lean for performance
 			// Find latest order sync time (Etsy) - using updatedAt
 			Order.findOne({ marketplace: 'etsy', updatedAt: { $exists: true } })
 				.sort({ updatedAt: -1 })
 				.select('updatedAt')
+				.maxTimeMS(10000)
 				.lean(),
 			// Find latest order sync time (Shopify) - using updatedAt
 			Order.findOne({ marketplace: 'shopify', updatedAt: { $exists: true } })
 				.sort({ updatedAt: -1 })
 				.select('updatedAt')
+				.maxTimeMS(10000)
 				.lean(),
 			// Note: lastInventorySync source is still TBD
 		]);
@@ -809,23 +814,34 @@ async function syncEtsyProducts(syncId, req) {
 			`[Perf] Etsy listing processing loop took ${(processEndTime - processStartTime).toFixed(2)}ms`,
 			{ syncId, count: listings.length }
 		);
-
 		updateSyncStatus(syncId, { progress: 70, currentPhase: 'Updating database' });
-
 		// Perform bulk write
 		if (bulkOps.length > 0) {
 			const dbStartTime = performance.now();
-			const result = await Product.bulkWrite(bulkOps, { ordered: false });
-			const dbEndTime = performance.now();
-			logger.info(
-				`[Perf] Etsy Product.bulkWrite took ${(dbEndTime - dbStartTime).toFixed(2)}ms`,
-				{
-					syncId,
-					inserted: result.insertedCount,
-					updated: result.modifiedCount,
-					upserted: result.upsertedCount,
-				}
-			);
+			logger.info('Starting database bulk write operation...', {
+				syncId,
+				operations: bulkOps.length,
+			});
+			try {
+				// Add maxTimeMS parameter to prevent indefinite waiting
+				const result = await Product.bulkWrite(bulkOps, {
+					ordered: false,
+					maxTimeMS: 60000, // 60-second timeout for bulk operations
+				});
+				const dbEndTime = performance.now();
+				logger.info(
+					`[Perf] Etsy Product.bulkWrite took ${(dbEndTime - dbStartTime).toFixed(2)}ms`,
+					{
+						syncId,
+						inserted: result.insertedCount,
+						updated: result.modifiedCount,
+						upserted: result.upsertedCount,
+					}
+				);
+			} catch (error) {
+				logger.error('Error during Etsy product bulk write:', error);
+				updateSyncStatus(syncId, { error: error.message });
+			}
 		} else {
 			logger.info('No Etsy product changes to write to database', { syncId });
 		}
@@ -1421,12 +1437,13 @@ async function syncShopifyProducts(syncId) {
 				});
 			}
 			updateSyncStatus(syncId, { syncCount: bulkOps.length }); // Refine sync count to actual operations
-
 			if (bulkOps.length > 0) {
 				logger.info('Performing bulk write operation to database...', { syncId });
 				updateSyncStatus(syncId, { progress: 85 });
 				try {
-					const result = await Product.bulkWrite(bulkOps);
+					const result = await Product.bulkWrite(bulkOps, {
+						maxTimeMS: 60000, // 60-second timeout for bulk operations
+					});
 					logger.info('Database bulk write completed.', {
 						syncId,
 						upserted: result.upsertedCount,
@@ -1806,10 +1823,18 @@ async function syncShopifyOrders(req, res) {
 		});
 		updateSyncStatus(syncId, { currentPhase: 'Initializing Shopify order sync', progress: 5 });
 
-		// Initialize Shopify client
+		// Check if Shopify credentials are available
+		if (!process.env.SHOPIFY_SHOP_NAME || !process.env.SHOPIFY_ACCESS_TOKEN) {
+			throw new Error('Missing Shopify credentials in environment variables');
+		}
+
+		// Initialize Shopify client with explicit options
 		const shopify = new Shopify({
 			shopName: process.env.SHOPIFY_SHOP_NAME,
 			accessToken: process.env.SHOPIFY_ACCESS_TOKEN,
+			apiVersion: '2023-10', // Set explicit API version
+			timeout: 60000, // 60 second timeout
+			autoLimit: true, // Automatically handle rate limits
 		});
 
 		// Array to store all orders
@@ -2192,13 +2217,16 @@ async function syncShopifyOrders(req, res) {
 }
 
 /**
- * Performs a full synchronization of products for both Etsy and Shopify.
+ * Performs a full synchronization of products and orders for both Etsy and Shopify.
  * This function is intended to be called by the scheduler.
  */
 async function performFullSync() {
 	logger.info('Starting performFullSync...');
-	const etsySyncId = validateSyncId(null, 'etsy', 'products-auto');
-	const shopifySyncId = validateSyncId(null, 'shopify', 'products-auto');
+	// Generate sync IDs for products and orders
+	const etsyProductSyncId = validateSyncId(null, 'etsy', 'products-auto');
+	const shopifyProductSyncId = validateSyncId(null, 'shopify', 'products-auto');
+	const etsyOrderSyncId = validateSyncId(null, 'etsy', 'orders-auto');
+	const shopifyOrderSyncId = validateSyncId(null, 'shopify', 'orders-auto');
 
 	// Check and refresh Etsy auth token before starting sync
 	try {
@@ -2218,46 +2246,75 @@ async function performFullSync() {
 		// Continue anyway, as we'll handle the auth error in the sync process
 	}
 
+	// 1. First sync Etsy products
 	try {
-		logger.info('Starting automatic Etsy product sync...', { syncId: etsySyncId });
-		// Initialize status for this specific sync operation if your functions expect it
-		initializeSyncStatus(etsySyncId, 'etsy', 'products-auto');
-		await syncEtsyProducts(etsySyncId, null); // Pass null for req as it's a background task
-		logger.info('Automatic Etsy product sync completed.', { syncId: etsySyncId });
+		logger.info('Starting automatic Etsy product sync...', { syncId: etsyProductSyncId });
+		initializeSyncStatus(etsyProductSyncId, 'etsy', 'products-auto');
+		await syncEtsyProducts(etsyProductSyncId, null); // Pass null for req as it's a background task
+		logger.info('Automatic Etsy product sync completed.', { syncId: etsyProductSyncId });
 	} catch (error) {
 		logger.error('Error during automatic Etsy product sync:', {
-			syncId: etsySyncId,
+			syncId: etsyProductSyncId,
 			errorMessage: error.message,
 			stack: error.stack,
 		});
 		// Ensure sync status is marked as complete with error for Etsy sync
-		completeSyncStatus(etsySyncId, {}, error);
+		completeSyncStatus(etsyProductSyncId, {}, error);
 	}
 
-	// Optional: Add a delay here if needed before starting Shopify sync
-	// await new Promise(resolve => setTimeout(resolve, 60000)); // e.g., 1 minute delay
-
+	// 2. Then sync Shopify products
 	try {
-		logger.info('Starting automatic Shopify product sync...', { syncId: shopifySyncId });
-		// Initialize status for this specific sync operation
-		initializeSyncStatus(shopifySyncId, 'shopify', 'products-auto');
-		await syncShopifyProducts(shopifySyncId, null); // Pass null for req
-		logger.info('Automatic Shopify product sync completed.', { syncId: shopifySyncId });
+		logger.info('Starting automatic Shopify product sync...', { syncId: shopifyProductSyncId });
+		initializeSyncStatus(shopifyProductSyncId, 'shopify', 'products-auto');
+		await syncShopifyProducts(shopifyProductSyncId); // Only pass syncId parameter
+		logger.info('Automatic Shopify product sync completed.', { syncId: shopifyProductSyncId });
 	} catch (error) {
 		logger.error('Error during automatic Shopify product sync:', {
-			syncId: shopifySyncId,
+			syncId: shopifyProductSyncId,
 			errorMessage: error.message,
 			stack: error.stack,
 		});
-		// Ensure sync status is marked as complete with error for Shopify sync
-		completeSyncStatus(shopifySyncId, {}, error);
+		completeSyncStatus(shopifyProductSyncId, {}, error);
 	}
 
-	// Note: Order syncing (syncEtsyOrders, syncShopifyOrders) is not included here yet
-	// as they are currently structured as route handlers and would need refactoring
-	// to be called directly by a background scheduler without an HTTP request/response context.
+	// 3. Sync Etsy orders
+	try {
+		logger.info('Starting automatic Etsy order sync...', { syncId: etsyOrderSyncId });
+		initializeSyncStatus(etsyOrderSyncId, 'etsy', 'orders-auto');
 
-	logger.info('performFullSync completed.');
+		// Create a mock request object with the syncId in query
+		const mockReq = { query: { syncId: etsyOrderSyncId } };
+		await syncEtsyOrders(mockReq, null); // Pass null for res as it's a background task
+
+		logger.info('Automatic Etsy order sync completed.', { syncId: etsyOrderSyncId });
+	} catch (error) {
+		logger.error('Error during automatic Etsy order sync:', {
+			syncId: etsyOrderSyncId,
+			errorMessage: error.message,
+			stack: error.stack,
+		});
+		completeSyncStatus(etsyOrderSyncId, {}, error);
+	}
+
+	// 4. Sync Shopify orders
+	try {
+		logger.info('Starting automatic Shopify order sync...', { syncId: shopifyOrderSyncId });
+		initializeSyncStatus(shopifyOrderSyncId, 'shopify', 'orders-auto');
+
+		// Pass the syncId directly as required by the function signature
+		await syncShopifyOrders(shopifyOrderSyncId, null); // Pass syncId directly and null for res
+
+		logger.info('Automatic Shopify order sync completed.', { syncId: shopifyOrderSyncId });
+	} catch (error) {
+		logger.error('Error during automatic Shopify order sync:', {
+			syncId: shopifyOrderSyncId,
+			errorMessage: error.message,
+			stack: error.stack,
+		});
+		completeSyncStatus(shopifyOrderSyncId, {}, error);
+	}
+
+	logger.info('performFullSync completed successfully with all syncs.');
 }
 
 /**

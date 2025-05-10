@@ -198,7 +198,21 @@ async function getShopId() {
 		// Fetch shop ID from Etsy
 		const accessToken = authService.getAccessToken();
 		if (!accessToken) {
-			throw new Error('No access token available');
+			// Try to refresh the token before giving up
+			logger.warn('No access token available, attempting to refresh token...');
+			try {
+				await authService.refreshToken();
+				const newToken = authService.getAccessToken();
+				if (!newToken) {
+					throw new Error('Failed to obtain access token after refresh');
+				}
+				// If we got here, we have a new token
+				logger.info('Successfully refreshed access token');
+				return await getShopId(); // Recursive call with new token
+			} catch (refreshError) {
+				logger.error('Failed to refresh token:', { error: refreshError.message });
+				throw new Error('No access token available');
+			}
 		}
 
 		const response = await etsyRequest(

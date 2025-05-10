@@ -97,6 +97,42 @@ async function verifyAuthentication() {
 }
 
 /**
+ * Runs a manual sync for testing purposes.
+ * @param {boolean} [skipAuthCheck=false] - Whether to skip authentication checks
+ * @returns {Promise<void>} A promise that resolves when the sync completes.
+ */
+async function runManualSync(skipAuthCheck = false) {
+    logger.info('Starting manual synchronization...');
+    try {
+        let isAuthenticated = true;
+        
+        // Skip authentication check if requested
+        if (!skipAuthCheck) {
+            isAuthenticated = await verifyAuthentication();
+        } else {
+            logger.info('Skipping authentication check as requested');
+        }
+
+        if (!isAuthenticated) {
+            logger.warn('Skipping manual sync due to authentication issues');
+            return;
+        }
+
+        if (typeof performFullSync === 'function') {
+            await performFullSync();
+            logger.info('Manual synchronization completed successfully.');
+        } else {
+            logger.error('performFullSync function is not available. Manual sync cannot run.');
+        }
+    } catch (error) {
+        logger.error('Error during manual synchronization:', {
+            errorMessage: error.message,
+            stack: error.stack,
+        });
+    }
+}
+
+/**
  * Stops the synchronization scheduler.
  */
 function stopScheduler() {
@@ -110,4 +146,5 @@ function stopScheduler() {
 module.exports = {
 	startOrReconfigureScheduler,
 	stopScheduler,
+	runManualSync,
 };

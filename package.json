@@ -4,7 +4,11 @@
 	"description": "A simple Node app that makes requests to Etsy’s Open API.",
 	"main": "server.js",
 	"scripts": {
-		"start": "node server.js"
+		"start": "node server.js",
+		"check-db": "node test-scripts/mongo-health-check.js",
+		"test-timeouts": "node test-scripts/test-timeouts.js",
+		"analyze-indexes": "node test-scripts/analyze-indexes.js",
+		"create-indexes": "node test-scripts/create-indexes.js"
 	},
 	"dependencies": {
 		"@dotenvx/dotenvx": "^1.40.0",

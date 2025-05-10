@@ -199,7 +199,7 @@ Adjust the maxDepth parameter in the JSON helper or add special handling for spe
 2. List running services:
 
     ```bash
-    sc query MongoDB
+    Get-Service -Name MongoDB -ErrorAction SilentlyContinue
     ```
 
 ### Further Troubleshooting
@@ -209,7 +209,7 @@ If MongoDB won't start:
 1. Check if the service is installed:
 
     ```bash
-    sc query MongoDB
+    Get-Service -Name MongoDB -ErrorAction SilentlyContinue
     ```
 
 2. If not found, install MongoDB as a service:

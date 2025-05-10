@@ -177,9 +177,24 @@ app.get('/ping', async (req, res) => {
 
 /**
  * Fetches all data required for the dashboard
+ * @param {boolean} [useCache=true] - Whether to use cached data if available
  * @returns {Promise<Object>} Dashboard data
  */
-async function fetchDashboardData() {
+async function fetchDashboardData(useCache = true) {
+	// Add cache support
+	const cache = require('./utils/cache');
+	const CACHE_KEY = 'dashboard_data';
+	const CACHE_TTL = 300; // 5 minutes
+	
+	// Try to get from cache first
+	if (useCache) {
+		const cachedData = cache.get(CACHE_KEY);
+		if (cachedData) {
+			return cachedData;
+		}
+	}
+	
+	// Cache miss or bypass, fetch fresh data
 	const [
 		totalProducts,
 		productsWithEtsy,
@@ -189,14 +204,14 @@ async function fetchDashboardData() {
 		lowStockItems,
 		recentOrdersDocs, // Rename to indicate they are Mongoose docs initially
 	] = await Promise.all([
-		Product.countDocuments(),
-		Product.countDocuments({ 'etsy_data.listing_id': { $exists: true } }),
-		Product.countDocuments({ 'shopify_data.listing_id': { $exists: true } }), // Corrected field name
+		Product.countDocuments().maxTimeMS(10000),
+		Product.countDocuments({ 'etsy_data.listing_id': { $exists: true } }).maxTimeMS(10000),
+		Product.countDocuments({ 'shopify_data.listing_id': { $exists: true } }).maxTimeMS(10000), // Corrected field name
 		Order.countDocuments({
 			status: 'unshipped', // Use the unified status field
 			items: { $elemMatch: { is_digital: false } },
 			// Removed Etsy-specific fields, rely on the unified status
-		}),
+		}).maxTimeMS(10000),
 		Order.countDocuments({
 			status: 'shipped', // Use the unified status field
 			items: { $elemMatch: { is_digital: false } },
@@ -204,7 +219,7 @@ async function fetchDashboardData() {
 				$gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
 				$ne: null,
 			},
-		}),
+		}).maxTimeMS(10000),
 		Product.find({
 			$expr: {
 				$lt: [
@@ -212,12 +227,13 @@ async function fetchDashboardData() {
 					parseInt(process.env.LOW_STOCK_THRESHOLD || 5),
 				],
 			},
-		}).limit(10),
+		}).maxTimeMS(10000).limit(10),
 		Order.find({
 			status: 'unshipped', // Use the unified status field
 			items: { $elemMatch: { is_digital: false } },
 			// Removed Etsy-specific fields
 		})
+			.maxTimeMS(10000)
 			.sort({ order_date: -1 })
 			.limit(5),
 		// No .lean() here initially
@@ -241,15 +257,21 @@ async function fetchDashboardData() {
 			critical: availableQuantity < 2,
 		};
 	});
-
 	// Convert recentOrdersDocs to plain objects, including virtuals
 	const recentOrders = recentOrdersDocs.map(order => order.toObject({ virtuals: true }));
 
-	return {
+	const dashboardData = {
 		stats,
 		lowStockItems: lowStockWithStatus,
-		recentOrders, // Pass the array of plain objects
+		recentOrders,
 	};
+	
+	// Cache the data for future requests
+	if (useCache) {
+		cache.set(CACHE_KEY, dashboardData, CACHE_TTL);
+	}
+
+	return dashboardData;
 }
 
 // Error Handling Middleware

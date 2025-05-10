@@ -84,14 +84,13 @@ router.get('/api/data', async (req, res) => {
 		// Build sort object
 		const sort = {};
 		sort[sortField] = sortOrder;
-
 		// Get total count with filter applied
-		const totalCount = await Product.countDocuments(filter);
+		const totalCount = await Product.countDocuments(filter).maxTimeMS(10000);
 		const totalPages = Math.ceil(totalCount / limit);
-
 		// Get products for current page
 		const products = await Product.find(filter)
 			.lean()
+			.maxTimeMS(15000) // 15-second timeout for pagination queries
 			.select({
 				sku: 1,
 				name: 1,
@@ -298,8 +297,7 @@ async function getInventoryViewData() {
 	// distinctProperties.forEach(propName => {
 	//     columns.push({ data: `properties.${propName}`, title: propName, type: 'text' });
 	// });
-
-	const totalCount = await Product.countDocuments();
+	const totalCount = await Product.countDocuments().maxTimeMS(10000);
 	return { totalCount, columns };
 }
 
@@ -342,7 +340,7 @@ function buildSearchFilter(search) {
  * @returns {Promise<Object|null>} Product document or null if not found
  */
 async function findProductBySku(sku) {
-	return Product.findOne({ sku });
+	return Product.findOne({ sku }).maxTimeMS(10000);
 }
 
 /**
@@ -364,7 +362,7 @@ async function updateOrCreateProduct(productData) {
 		throw new Error('SKU is required');
 	}
 
-	const product = await Product.findOne({ sku: productData.sku });
+	const product = await Product.findOne({ sku: productData.sku }).maxTimeMS(10000);
 
 	if (product) {
 		Object.assign(product, productData);
