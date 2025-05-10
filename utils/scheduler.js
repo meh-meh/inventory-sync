@@ -2,6 +2,8 @@ const cron = require('node-cron');
 const { logger } = require('./logger');
 // Import performFullSync from routes/sync.js
 const { performFullSync } = require('../routes/sync');
+// Import auth service for token verification
+const authService = require('./auth-service');
 
 let scheduledTask = null;
 
@@ -30,6 +32,14 @@ async function startOrReconfigureScheduler() {
 					`Starting scheduled synchronization (interval: ${autoSyncIntervalHours} hours)...`
 				);
 				try {
+					// Verify authentication before running sync
+					const isAuthenticated = await verifyAuthentication();
+
+					if (!isAuthenticated) {
+						logger.warn('Skipping scheduled sync due to authentication issues');
+						return;
+					}
+
 					if (typeof performFullSync === 'function') {
 						await performFullSync(); // Assuming performFullSync handles its own logging for success/failure
 						logger.info('Scheduled synchronization completed successfully.');
@@ -58,6 +68,31 @@ async function startOrReconfigureScheduler() {
 		logger.info(
 			'Automatic synchronization is disabled or interval is invalid. Scheduler not started.'
 		);
+	}
+}
+
+/**
+ * Verifies authentication before running the scheduled sync.
+ * Attempts to refresh the token if it's expired.
+ * @returns {Promise<boolean>} True if authentication is valid, false otherwise
+ */
+async function verifyAuthentication() {
+	try {
+		// Check if token is expired
+		if (authService.isTokenExpired()) {
+			logger.info(
+				'Authentication token is expired, attempting to refresh before scheduled sync'
+			);
+			await authService.refreshToken();
+			logger.info('Successfully refreshed authentication token for scheduled sync');
+		}
+		return true;
+	} catch (error) {
+		logger.error('Authentication verification failed before scheduled sync', {
+			error: error.message,
+			stack: error.stack,
+		});
+		return false;
 	}
 }
 

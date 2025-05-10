@@ -89,17 +89,24 @@ async function etsyFetch(url, options, retries = MAX_RETRIES) {
 			}
 			throw new Error('Rate limit exceeded and max retries reached');
 		}
-
 		if (response.status === 401) {
 			const tokenExpired = authService.isTokenExpired();
 			if (tokenExpired && retries > 0) {
 				logger.warn('Token expired, attempting refresh and retry...');
-				await authService.refreshToken();
-				// Update authorization header with new token
-				if (options.headers && options.headers.Authorization) {
-					options.headers.Authorization = `Bearer ${authService.getAccessToken()}`;
+				try {
+					await authService.refreshToken();
+					// Update authorization header with new token
+					if (options.headers && options.headers.Authorization) {
+						options.headers.Authorization = `Bearer ${authService.getAccessToken()}`;
+					}
+					return etsyFetch(url, options, retries - 1);
+				} catch (refreshError) {
+					logger.error('Authentication failed - token refresh error', {
+						error: refreshError.message,
+						retries: retries,
+					});
+					throw new Error(`Authentication failed: ${refreshError.message}`);
 				}
-				return etsyFetch(url, options, retries - 1);
 			}
 			logger.error('Authentication failed - unable to refresh token');
 			throw new Error('Authentication failed');

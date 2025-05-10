@@ -102,35 +102,67 @@ async function refreshToken() {
 			throw new Error('No refresh token available');
 		}
 
-		const requestOptions = {
-			method: 'POST',
-			body: JSON.stringify({
-				grant_type: 'refresh_token',
-				client_id: process.env.ETSY_API_KEY,
-				refresh_token: tokenData.refresh_token,
-			}),
-			headers: {
-				'Content-Type': 'application/json',
-			},
-		};
+		// Add retry logic for token refresh
+		let attempts = 0;
+		const maxAttempts = 3;
+		const retryDelay = 1000; // 1 second delay between retries
 
-		const response = await fetch(TOKEN_URL, requestOptions);
+		while (attempts < maxAttempts) {
+			try {
+				const requestOptions = {
+					method: 'POST',
+					body: JSON.stringify({
+						grant_type: 'refresh_token',
+						client_id: process.env.ETSY_API_KEY,
+						refresh_token: tokenData.refresh_token,
+					}),
+					headers: {
+						'Content-Type': 'application/json',
+					},
+				};
 
-		if (!response.ok) {
-			const errorData = await response.json().catch(() => response.text());
-			logger.error('Failed to refresh token', {
-				status: response.status,
-				errorData,
-			});
-			throw new Error('Failed to refresh token');
+				const response = await fetch(TOKEN_URL, requestOptions);
+
+				if (!response.ok) {
+					const errorData = await response.json().catch(() => response.text());
+					logger.error('Failed to refresh token', {
+						status: response.status,
+						errorData,
+						attempt: attempts + 1,
+						maxAttempts,
+					});
+
+					// If this is the last attempt, throw error to be caught by outer catch
+					if (attempts === maxAttempts - 1) {
+						throw new Error(
+							`Failed to refresh token: ${response.status} ${JSON.stringify(errorData)}`
+						);
+					}
+
+					attempts++;
+					await new Promise(resolve =>
+						setTimeout(resolve, retryDelay * Math.pow(2, attempts))
+					);
+					continue;
+				}
+
+				const newTokenData = await response.json();
+
+				// Save the refreshed token
+				await saveNewToken(newTokenData);
+				return true;
+			} catch (retryError) {
+				// If this is the last attempt, rethrow
+				if (attempts === maxAttempts - 1) {
+					throw retryError;
+				}
+
+				attempts++;
+				await new Promise(resolve =>
+					setTimeout(resolve, retryDelay * Math.pow(2, attempts))
+				);
+			}
 		}
-
-		const newTokenData = await response.json();
-
-		// Save the refreshed token
-		await saveNewToken(newTokenData);
-
-		return true;
 	} catch (error) {
 		logger.error('Error refreshing auth token', { error: error.message });
 		throw error;

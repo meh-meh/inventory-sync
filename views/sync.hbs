@@ -218,9 +218,10 @@
                 
                 const data = await response.json();
                 console.log('Received sync status:', data);
-                
-                // Update details and log
-                const details = `Phase: ${data.currentPhase || 'Starting...'}<br>Processed: ${data.processedCount || 0} of ${data.totalCount || '?'}`;
+                  // Update details and log
+                const details = `Phase: ${data.currentPhase || 'Starting...'}<br>` + 
+                                `Processed: ${data.processedCount || 0} of ${data.totalCount || '?'}<br>` +
+                                `Progress: ${data.progress || 0}%`;
                 const log = data.log || [];
                 
                 // Update progress bar

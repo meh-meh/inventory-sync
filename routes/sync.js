@@ -619,9 +619,8 @@ router.get('/sync-shopify', async (req, res) => {
 
 	// Initialize sync status
 	initializeSyncStatus(syncId, 'shopify', 'products');
-
 	// Start the sync process in the background, passing the syncId
-	syncShopifyProducts(syncId, req) // Pass syncId here
+	syncShopifyProducts(syncId) // Only pass syncId parameter to match the function signature
 		.catch(error => {
 			// This catch is for errors thrown *synchronously* before the async function really gets going
 			// or if the async function itself isn't caught internally properly (should be avoided).
@@ -653,9 +652,29 @@ router.get('/sync-shopify', async (req, res) => {
  */
 async function syncEtsyProducts(syncId, req) {
 	const overallStartTime = performance.now();
-	//const status = syncStatus.get(syncId);
+
 	try {
 		logger.info('Starting Etsy product sync', { syncId });
+
+		// Verify authentication token is valid before proceeding
+		const authService = require('../utils/auth-service');
+		if (authService.isTokenExpired()) {
+			logger.info(
+				'Auth token expired, attempting to refresh before starting Etsy product sync',
+				{ syncId }
+			);
+			try {
+				await authService.refreshToken();
+				logger.info('Auth token refreshed successfully for Etsy product sync', { syncId });
+			} catch (authError) {
+				logger.error('Failed to refresh auth token for Etsy product sync', {
+					syncId,
+					error: authError.message,
+				});
+				throw new Error(`Authentication failed: ${authError.message}`);
+			}
+		}
+
 		const shop_id = await getShopId();
 		updateSyncStatus(syncId, { currentPhase: 'Fetching listings' });
 
@@ -824,12 +843,11 @@ async function syncEtsyProducts(syncId, req) {
 		await Settings.setSetting('lastEtsyProductSync', new Date().toISOString());
 	} catch (error) {
 		logger.error('Error syncing Etsy products in background', { error: error.message });
-
 		// Update status with error
 		completeSyncStatus(syncId, {}, error);
 
-		// Set flash error to be shown on next page load
-		if (req.session) {
+		// Set flash error to be shown on next page load - only if req exists (in manual sync)
+		if (req && req.session) {
 			req.session.flash = {
 				error: `Error syncing products from Etsy: ${error.message}`,
 			};
@@ -1113,6 +1131,12 @@ async function syncShopifyProducts(syncId) {
 							`Failed to download Shopify products file: ${response.statusText}`
 						);
 					}
+
+					updateSyncStatus(syncId, {
+						currentPhase: 'Downloading data...',
+						progress: 46,
+					});
+
 					await fs.mkdir(directoryPath, { recursive: true }); // Use fs.promises.mkdir
 					const fileWriteStream = fsSync.createWriteStream(fileName); // Use fs.createWriteStream
 					if (typeof Readable.fromWeb === 'function') {
@@ -1144,7 +1168,6 @@ async function syncShopifyProducts(syncId) {
 		if (url && fileName) {
 			logger.info(`Processing Shopify data from file: ${fileName}`, { syncId });
 			updateSyncStatus(syncId, { currentPhase: 'Processing data', progress: 55 });
-
 			const fileReadStream = fsSync.createReadStream(fileName); // Use fsSync for streams
 			const rl = readline.createInterface({
 				input: fileReadStream,
@@ -1154,6 +1177,14 @@ async function syncShopifyProducts(syncId) {
 			const allProducts = {};
 			const variantToProductMap = {};
 			let lineCount = 0;
+
+			// Update progress periodically during file reading
+			const progressInterval = setInterval(() => {
+				updateSyncStatus(syncId, {
+					currentPhase: `Processing data (${lineCount} lines)`,
+					processedCount: lineCount,
+				});
+			}, 1000); // Update every second
 
 			rl.on('line', line => {
 				// ... (keep existing line processing logic) ...
@@ -1277,11 +1308,19 @@ async function syncShopifyProducts(syncId) {
 					});
 				}
 			});
-
 			await new Promise((resolve, reject) => {
-				rl.on('close', resolve);
-				rl.on('error', reject);
-				fileReadStream.on('error', reject);
+				rl.on('close', () => {
+					clearInterval(progressInterval); // Clear the interval when processing is done
+					resolve();
+				});
+				rl.on('error', err => {
+					clearInterval(progressInterval); // Clear the interval on error
+					reject(err);
+				});
+				fileReadStream.on('error', err => {
+					clearInterval(progressInterval); // Clear the interval on stream error
+					reject(err);
+				});
 			});
 
 			logger.info(
@@ -1293,12 +1332,26 @@ async function syncShopifyProducts(syncId) {
 			// --- Database Update Logic ---
 			logger.info('Preparing database updates for Shopify products...', { syncId });
 			updateSyncStatus(syncId, { currentPhase: 'Updating database', progress: 75 });
-
 			const bulkOps = [];
 			const syncTimestamp = new Date();
 			ignoreCount = 0; // Reset ignore count for this phase
+			const totalProducts = Object.keys(allProducts).length;
+			let processedProducts = 0;
 
 			for (const productId in allProducts) {
+				// Update progress periodically during product processing
+				processedProducts++;
+				if (processedProducts % 20 === 0 || processedProducts === totalProducts) {
+					const progressPercent =
+						75 + Math.floor((processedProducts / totalProducts) * 10);
+					updateSyncStatus(syncId, {
+						currentPhase: `Preparing database updates (${processedProducts}/${totalProducts})`,
+						progress: progressPercent,
+						processedCount: processedProducts,
+						totalCount: totalProducts,
+					});
+				}
+
 				// ... (keep existing variant processing and bulkOps creation logic) ...
 				const shopifyProduct = allProducts[productId];
 				if (shopifyProduct.ignore === true) {
@@ -1391,7 +1444,10 @@ async function syncShopifyProducts(syncId) {
 				logger.info('No valid Shopify products found to update in the database.', {
 					syncId,
 				});
-				updateSyncStatus(syncId, { counts: { added: 0, updated: 0 } }); // Set counts to zero
+				updateSyncStatus(syncId, {
+					counts: { added: 0, updated: 0 },
+					progress: 85, // Ensure progress is updated even when there are no changes
+				});
 			}
 			updateSyncStatus(syncId, { progress: 95 });
 		} else {
@@ -1408,8 +1464,11 @@ async function syncShopifyProducts(syncId) {
 
 		// --- Data File Cleanup ---
 		logger.info('Cleaning up old data files...', { syncId });
-		updateSyncStatus(syncId, { currentPhase: 'Cleaning up' });
+		updateSyncStatus(syncId, { currentPhase: 'Cleaning up', progress: 95 });
 		await cleanupDataFiles(directoryPath, filePrefix, 5);
+
+		// Ensure progress is set to 100% before completing
+		updateSyncStatus(syncId, { progress: 100, currentPhase: 'Sync complete' });
 
 		logger.info('Shopify product sync process finished successfully.', { syncId });
 		completeSyncStatus(syncId);
@@ -2140,6 +2199,24 @@ async function performFullSync() {
 	logger.info('Starting performFullSync...');
 	const etsySyncId = validateSyncId(null, 'etsy', 'products-auto');
 	const shopifySyncId = validateSyncId(null, 'shopify', 'products-auto');
+
+	// Check and refresh Etsy auth token before starting sync
+	try {
+		const authService = require('../utils/auth-service');
+		if (authService.isTokenExpired()) {
+			logger.info('Auth token expired, attempting to refresh before starting sync');
+			await authService.refreshToken();
+			logger.info('Auth token refreshed successfully');
+		} else {
+			logger.info('Auth token valid, proceeding with sync');
+		}
+	} catch (authError) {
+		logger.error('Failed to refresh auth token before sync', {
+			error: authError.message,
+			stack: authError.stack,
+		});
+		// Continue anyway, as we'll handle the auth error in the sync process
+	}
 
 	try {
 		logger.info('Starting automatic Etsy product sync...', { syncId: etsySyncId });
