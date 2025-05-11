@@ -221,3 +221,69 @@ If MongoDB won't start:
     Replace {version} with your MongoDB version (e.g., 6.0)
 
 **Note:** These commands require Administrator privileges. Right-click Command Prompt and select "Run as Administrator".
+
+### Sample Data Prep
+
+You can try running a query like the one below at a timestamp where you'll gather orders of multiple statuses to collect some test data. 
+
+``` graphql
+query GetOrders($numGet: Int!, $cursor: String) {
+  orders(query: "created_at:>=1745798400", first: $numGet, after: $cursor) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      id
+      name
+      email
+      phone
+      totalPriceSet {
+        shopMoney {
+          amount
+          currencyCode
+        }
+      }
+      displayFinancialStatus
+      displayFulfillmentStatus
+      createdAt
+      processedAt
+      fulfillments(first: 5) {
+        id
+        status
+        trackingInfo(first: 5) {
+          company
+          number
+          url
+        }
+      }
+      customer {
+        id
+        firstName
+        lastName
+        email
+      }
+      lineItems(first: 250) {
+        nodes {
+          id
+          title
+          quantity
+          variant {
+            id
+            sku
+            product {
+              id
+            }
+          }
+          requiresShipping
+        }
+      }
+    }
+  }
+}
+
+{
+  "numGet": 20,
+  "cursor": null
+}
+```
