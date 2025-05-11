@@ -133,6 +133,75 @@ async function runManualSync(skipAuthCheck = false) {
 }
 
 /**
+ * Runs an automatic sync on server startup if AUTO_SYNC_ENABLED is true
+ * and the last sync was outside of the configured interval.
+ * @returns {Promise<void>} A promise that resolves when the startup sync completes or is skipped.
+ */
+async function runStartupSync() {
+	const autoSyncEnabled = process.env.AUTO_SYNC_ENABLED === 'true';
+
+	if (!autoSyncEnabled) {
+		logger.info('AUTO_SYNC_ENABLED is not set to true. Skipping initial sync on startup.');
+		return;
+	}
+
+	// Get the auto sync interval (in hours)
+	const autoSyncIntervalHours = parseInt(process.env.AUTO_SYNC_INTERVAL, 10) || 24; // Default to 24 hours if not set
+
+	try {
+		// Import Settings model for checking last sync times
+		const Settings = require('../models/settings');
+
+		// Get the most recent sync time from any of the sync types
+		const syncTimes = await Promise.all([
+			Settings.getSetting('lastEtsyProductSync'),
+			Settings.getSetting('lastShopifyProductSync'),
+			Settings.getSetting('lastEtsyOrderSync'),
+			Settings.getSetting('lastShopifyOrderSync'),
+		]);
+
+		// Filter out null values and convert to Date objects
+		const validSyncTimes = syncTimes.filter(time => time).map(time => new Date(time).getTime());
+
+		// Get the most recent sync time (if any)
+		const mostRecentSyncTime = validSyncTimes.length ? Math.max(...validSyncTimes) : null;
+
+		// If there's a recent sync, check if it's outside the interval
+		if (mostRecentSyncTime) {
+			// Calculate how many milliseconds ago the last sync occurred
+			const timeSinceLastSync = Date.now() - mostRecentSyncTime;
+			// Convert auto sync interval to milliseconds
+			const intervalMs = autoSyncIntervalHours * 60 * 60 * 1000;
+
+			// If the last sync was within the interval, skip the sync
+			if (timeSinceLastSync < intervalMs) {
+				logger.info(
+					`Last sync was ${Math.round(timeSinceLastSync / (60 * 1000))} minutes ago, ` +
+						`which is within the configured interval of ${autoSyncIntervalHours} hours. Skipping initial sync.`
+				);
+				return;
+			}
+
+			logger.info(
+				`Last sync was ${Math.round(timeSinceLastSync / (60 * 60 * 1000))} hours ago. ` +
+					`Performing initial sync as it exceeds the configured interval of ${autoSyncIntervalHours} hours.`
+			);
+		} else {
+			logger.info('No previous sync found. Running initial sync on server startup.');
+		}
+
+		// Run the sync
+		await runManualSync();
+		logger.info('Initial startup sync completed successfully.');
+	} catch (error) {
+		logger.error('Error during initial startup sync:', {
+			errorMessage: error.message,
+			stack: error.stack,
+		});
+	}
+}
+
+/**
  * Stops the synchronization scheduler.
  */
 function stopScheduler() {
@@ -147,4 +216,5 @@ module.exports = {
 	startOrReconfigureScheduler,
 	stopScheduler,
 	runManualSync,
+	runStartupSync,
 };

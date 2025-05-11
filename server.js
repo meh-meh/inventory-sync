@@ -32,7 +32,7 @@ const settingsRoutes = require('./routes/settings');
 const configHandlebarsHelpers = require('./utils/handlebars-helpers');
 const { setupFlashMessages, refreshAuthToken } = require('./utils/middleware');
 const authService = require('./utils/auth-service');
-const { startOrReconfigureScheduler } = require('./utils/scheduler'); // Import the scheduler function
+const { startOrReconfigureScheduler, runStartupSync } = require('./utils/scheduler'); // Import the scheduler functions
 
 // Database connection
 require('./config/database');
@@ -317,5 +317,8 @@ if (require.main === module) {
 		// Start the scheduler after settings are loaded and server is running
 		await startOrReconfigureScheduler();
 		logger.info('Scheduler initialized.');
+
+		// Run initial sync on startup if AUTO_SYNC_ENABLED is true
+		await runStartupSync();
 	});
 }
