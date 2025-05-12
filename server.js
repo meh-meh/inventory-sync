@@ -92,6 +92,7 @@ app.use('/settings', settingsRoutes);
  * @param {Object} res - Express response object
  */
 app.get('/', async (req, res) => {
+	// TODO: Add last auto-sync time to dashboard
 	try {
 		const isAuthenticated = !authService.isTokenExpired();
 

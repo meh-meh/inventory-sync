@@ -1,3 +1,5 @@
+// TODO: Refactor this file to separate concerns and improve readability
+
 /**
  * Marketplace synchronization routes and functions
  * Handles syncing products and orders between Etsy, Shopify, and internal inventory
@@ -1579,15 +1581,18 @@ async function syncEtsyOrders(req, res) {
 		let allOrders = [];
 		let newOrderCount = 0;
 		let updatedOrderCount = 0;
-		let lastSyncTime = await Settings.getSetting('lastEtsyOrderSync');
+		// let lastSyncTime = await Settings.getSetting('lastEtsyOrderSync');
 		let minCreated;
-		if (lastSyncTime) {
-			const overlapMs = 24 * 60 * 60 * 1000; // 1 day overlap
-			minCreated = Math.floor((new Date(lastSyncTime).getTime() - overlapMs) / 1000);
-		} else {
-			const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || '90', 10);
-			minCreated = Math.floor((Date.now() - orderSyncDays * 24 * 60 * 60 * 1000) / 1000);
-		}
+		// if (lastSyncTime) {
+		// 	const overlapMs = 24 * 60 * 60 * 1000; // 1 day overlap
+		// 	minCreated = Math.floor((new Date(lastSyncTime).getTime() - overlapMs) / 1000);
+		// } else {
+		// 	const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || '90', 10);
+		// 	minCreated = Math.floor((Date.now() - orderSyncDays * 24 * 60 * 60 * 1000) / 1000);
+		// }
+		const orderSyncDays = parseInt(process.env.ORDER_SYNC_DAYS || '90', 10);
+		minCreated = Math.floor((Date.now() - orderSyncDays * 24 * 60 * 60 * 1000) / 1000);
+
 		const headers = {
 			'x-api-key': process.env.ETSY_API_KEY,
 			Authorization: `Bearer ${tokenData.access_token}`,
@@ -1721,8 +1726,10 @@ async function syncEtsyOrders(req, res) {
 			if (!receiptIdStr) continue;
 			const existing = existingOrderMap.get(receiptIdStr);
 			const timestamp = etsyOrderData.created_timestamp;
+			const shippedTimestamp = etsyOrderData.shipments?.[0]?.shipment_notification_timestamp;
 			if (typeof timestamp !== 'number' || timestamp <= 0) continue;
 			const orderDate = new Date(timestamp * 1000);
+			const shippedDate = shippedTimestamp ? new Date(shippedTimestamp * 1000) : null;
 			if (isNaN(orderDate.getTime())) continue;
 			const items = (etsyOrderData.transactions || []).map(tx => ({
 				marketplace: 'etsy',
@@ -1740,6 +1747,7 @@ async function syncEtsyOrders(req, res) {
 					status: etsyOrderData.is_shipped ? 'shipped' : 'unshipped', // Status updated here
 					buyer_name: etsyOrderData.name || existing?.buyer_name || 'N/A',
 					order_date: orderDate,
+					shipped_date: shippedDate,
 					receipt_id: receiptIdStr,
 					items,
 				},
@@ -1846,7 +1854,7 @@ async function syncShopifyOrders(req, res) {
 		const formattedDate = date.toISOString();
 		logger.info(`Fetching Shopify orders created after: ${formattedDate}`, { syncId });
 
-		// TODO: Add ship date to query
+		// Ship date field is fulfillments.createdAt
 		// GraphQL fragment with fields to retrieve for each order
 		const orderFieldsFragment = `{
             pageInfo {
@@ -1868,6 +1876,17 @@ async function syncShopifyOrders(req, res) {
                 displayFulfillmentStatus
                 createdAt
                 processedAt
+                fulfillments(first: 5) {
+                    id
+					createdAt
+                    deliveredAt
+                    status
+                    trackingInfo(first: 5) {
+                        company
+                        number
+                    url
+                    }
+                }
                 customer {
                     id
                     firstName
@@ -2091,12 +2110,15 @@ async function syncShopifyOrders(req, res) {
 							items,
 							shopify_order_data: shopifyOrder,
 							financial_status: shopifyOrder.displayFinancialStatus,
-							fulfillment_status: shopifyOrder.displayFulfillmentStatus,
+							fulfillment_status: shopifyOrder.displayFulfillmentStatus.toLowerCase(),
 							status:
-								shopifyOrder.displayFulfillmentStatus === 'FULFILLED'
+								shopifyOrder.displayFulfillmentStatus.toLowerCase() === 'fulfilled'
 									? 'shipped'
 									: 'unshipped', // Status updated here
 							last_updated: new Date(),
+							shipped_date: shopifyOrder.fulfillments?.[0]?.createdAt
+								? new Date(shopifyOrder.fulfillments?.[0]?.createdAt)
+								: null,
 						},
 					};
 

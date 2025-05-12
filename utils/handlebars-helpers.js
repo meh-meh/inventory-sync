@@ -71,6 +71,12 @@ module.exports = function () {
 		 * @returns {String} Formatted date string or fallback text
 		 */
 		formatDate: function (date, options) {
+			// TODO: Make more readable date format:
+			// - For a timestamp within the last 24 hours, just show "Today" or "Yesterday"
+			// - For a timestamp within the last 7 days, show "X days ago"
+			// - For a timestamp from the current year, show moment().format("MMM Do")
+			// - For older timestamps, show moment().format("MMM YYYY")
+
 			// Renamed second arg to 'options'
 			if (!date) {
 				// logger.debug('formatDate helper received null/undefined date');
@@ -83,7 +89,7 @@ module.exports = function () {
 					? options.hash.format
 					: 'YYYY-MM-DD HH:mm:ss';
 
-			// logger.debug('formatDate using format:', { format: fmt });
+			logger.debug('formatDate using format:', { format: fmt });
 
 			try {
 				const mDate = moment(date);
