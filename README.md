@@ -79,10 +79,11 @@ The server will be available at <http://localhost:3003>
 - [x] Implemented collapsible sections in orders view
 - [x] Fixed digital/physical item filtering
 - [x] Improved error handling and logging
-- [x] Added missing Handlebars helpers ('length', 'lt')
+- [x] Added Handlebars helpers: `length`, `lt` (and many others, see "Handlebars Helpers" section)
 - [x] Fixed image display in product details carousel
-- [x] Enhanced JSON data display with improved depth handling
+- [x] Enhanced JSON data display with improved depth handling (e.g., `safeStringifyPrep`)
 - [x] Optimized data processing for large objects
+- [x] Added a comprehensive set of Handlebars helpers (`json`, `formatDate` (basic), `formatCurrency`, `eq`, `includes`, `toUpperCase`, `toLowerCase`, `truncate`, `add`, `subtract`, `multiply`, `divide`, `selectOption`, `isEmpty`, `pagination`, `getImageUrl`, `debug`)
 
 ### Short-term Tasks
 
@@ -91,7 +92,7 @@ The server will be available at <http://localhost:3003>
 - [ ] Add order notes/comments feature
 - [ ] Implement order search functionality
 - [ ] Add order export functionality (CSV/Excel)
-- [ ] Add additional Handlebars helpers for template flexibility
+- [ ] Add additional Handlebars helpers for template flexibility (ongoing - current `formatDate` needs enhancement for relative dates)
 
 ### Long-term Goals
 
@@ -134,15 +135,27 @@ This application has recently been refactored to improve code organization and m
 
 ## Handlebars Helpers
 
-The application uses the following Handlebars helpers:
+The application uses the following Handlebars helpers (located in `utils/handlebars-helpers.js`):
 
-- `json`: Safely converts objects to JSON strings with formatting
-- `formatDate`: Formats date objects to local date strings
-- `multiply`: Multiplies two numbers
-- `divide`: Divides first number by second number
-- `eq`: Checks if two values are equal
-- `lt`: Checks if first value is less than second value
-- `length`: Returns the length of an array
+- `json`: Safely converts objects to JSON strings with formatting and circular reference handling.
+- `formatDate`: Formats date objects. Currently uses a standard format string (e.g., 'YYYY-MM-DD HH:mm:ss'). (TODO: Enhance for relative dates like "Today", "Yesterday").
+- `formatCurrency`: Formats a number as currency (defaults to USD).
+- `eq`: Checks if two values are strictly equal.
+- `includes`: Checks if a collection (Array or String) includes a value.
+- `length`: Returns the length of an array or string.
+- `toUpperCase`: Converts a string to uppercase.
+- `toLowerCase`: Converts a string to lowercase.
+- `truncate`: Truncates text to a specified length, appending an ellipsis.
+- `add`: Adds two numbers.
+- `subtract`: Subtracts the second number from the first.
+- `multiply`: Multiplies two numbers.
+- `divide`: Divides the first number by the second, handles division by zero.
+- `selectOption`: Outputs 'selected' if a value matches a selectedValue, for use in HTML select options.
+- `isEmpty`: Checks if an object, array, or string is empty.
+- `pagination`: Generates basic HTML for pagination links.
+- `getImageUrl`: Gets an image URL from a product object, with support for different sizes and placeholder.
+- `debug`: Logs the current Handlebars context and an optional value to the console.
+- `lt`: Checks if first value is less than second value.
 
 ## Development Notes
 

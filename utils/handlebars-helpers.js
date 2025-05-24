@@ -1,5 +1,25 @@
-const moment = require('moment');
 const { logger } = require('./logger'); // Import logger
+
+/**
+ * Get the ordinal suffix for a given day of the month.
+ * @param {number} day - The day of the month (1-31).
+ * @returns {string} The ordinal suffix (e.g., "st", "nd", "rd", "th").
+ */
+function getOrdinalSuffix(day) {
+	if (day > 3 && day < 21) {
+		return 'th';
+	}
+	switch (day % 10) {
+		case 1:
+			return 'st';
+		case 2:
+			return 'nd';
+		case 3:
+			return 'rd';
+		default:
+			return 'th';
+	}
+}
 
 /**
  * Safely prepares an object for JSON.stringify by handling potential circular references
@@ -70,43 +90,43 @@ module.exports = function () {
 		 * @param {String} options.hash.format - Date format string (moment.js format)
 		 * @returns {String} Formatted date string or fallback text
 		 */
-		formatDate: function (date, options) {
+		formatDate: function (date) {
 			// TODO: Make more readable date format:
 			// - For a timestamp within the last 24 hours, just show "Today" or "Yesterday"
 			// - For a timestamp within the last 7 days, show "X days ago"
-			// - For a timestamp from the current year, show moment().format("MMM Do")
-			// - For older timestamps, show moment().format("MMM YYYY")
+			// - For a timestamp from the current year, show month and ordinal day (e.g., "Jan 1st")
+			// - For older timestamps, show month and year
 
 			// Renamed second arg to 'options'
+			const today = new Date();
+
 			if (!date) {
 				// logger.debug('formatDate helper received null/undefined date');
 				return 'N/A';
 			}
-
-			// Get format string from hash arguments, or use default
-			const fmt =
-				typeof options?.hash?.format === 'string'
-					? options.hash.format
-					: 'YYYY-MM-DD HH:mm:ss';
-
-			logger.debug('formatDate using format:', { format: fmt });
-
-			try {
-				const mDate = moment(date);
-				if (!mDate.isValid()) {
-					logger.warn('formatDate helper received invalid date:', { date });
-					return 'Invalid Date';
-				}
-				return mDate.format(fmt);
-			} catch (error) {
-				// Log the error with more context
-				logger.error('Error formatting date in formatDate helper:', {
-					dateInput: date,
-					resolvedFormat: fmt,
-					errorMessage: error.message,
-					stack: error.stack,
-				});
-				return 'Invalid Date'; // Return a safe value on error
+			// Else check if date was today
+			else if (date.getDate() === today.getDate() && date >= today - 24 * 60 * 60 * 1000) {
+				return 'Today';
+			}
+			// Else check if date was yesterday
+			else if (date >= today - 24 * 60 * 60 * 1000) {
+				return 'Yesterday';
+			}
+			// Else check if date was within the last 7 days
+			else if (date >= today - 7 * 24 * 60 * 60 * 1000) {
+				return `${Math.floor((today - date) / (1000 * 60 * 60 * 24))} days ago`;
+			}
+			// Else check if date was this year
+			else if (date.getFullYear() === today.getFullYear()) {
+				return `${date.toLocaleString('default', {
+					month: 'short',
+				})} ${date.getDate()}${getOrdinalSuffix(date.getDate())}`;
+			}
+			// Otherwise, show month and year
+			else {
+				return `${date.toLocaleString('default', {
+					month: 'short',
+				})} ${date.getFullYear()}`;
 			}
 		},
 
