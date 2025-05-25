@@ -312,10 +312,19 @@
             });
             
             let syncUrl;
+            let fetchOptions = { method: 'GET' }; // Default to GET
+
             if (syncType === 'Products') {
                 syncUrl = `/sync/sync-${marketplace.toLowerCase()}?syncId=${syncId}`;
             } else if (syncType === 'Orders') {
-                syncUrl = `/sync/sync-orders?marketplace=${marketplace.toLowerCase()}&syncId=${syncId}`;
+                syncUrl = `/sync/sync-orders`;
+                fetchOptions = {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ marketplace: marketplace.toLowerCase(), syncId })
+                };
             } else if (syncType === 'Reconcile') {
                 syncUrl = `/sync/secretroute?syncId=${syncId}`;
             } 
@@ -328,7 +337,7 @@
             }
 
             // Fetch to start the background sync process
-            fetch(syncUrl)
+            fetch(syncUrl, fetchOptions)
                 .then(response => {
                     if (!response.ok) {
                         // Attempt to read error message if available

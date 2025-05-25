@@ -99,6 +99,7 @@ module.exports = function () {
 
 			// Renamed second arg to 'options'
 			const today = new Date();
+			const targetDate = new Date(date);
 
 			if (!date) {
 				// logger.debug('formatDate helper received null/undefined date');
@@ -108,7 +109,7 @@ module.exports = function () {
 			const noonToday = new Date(today);
 			noonToday.setHours(12, 0, 0, 0);
 
-			const noonDate = new Date(date);
+			const noonDate = new Date(targetDate);
 			noonDate.setHours(12, 0, 0, 0);
 
 			const diffDays = (noonToday - noonDate) / (1000 * 60 * 60 * 24);
@@ -126,23 +127,23 @@ module.exports = function () {
 				// noonToday.getDay() is 0 for Sunday, 1 for Monday, ..., 6 for Saturday.
 				// Since "Today" (diffDays < 1) and "Yesterday" (diffDays < 2) are already handled,
 				// this condition effectively covers diffDays >= 2 up to the current day of the week.
-				return new Date(date).toLocaleDateString('default', { weekday: 'long' });
+				return new Date(targetDate).toLocaleDateString('default', { weekday: 'long' });
 			}
 			// Else check if date is within 7 days of the previous Sunday. show "Last Week"
 			else if (diffDays <= noonToday.getDay() + 7) {
 				return 'Last Week';
 			}
 			// Else check if date was this year
-			else if (date.getFullYear() === today.getFullYear()) {
-				return `${date.toLocaleString('default', {
+			else if (targetDate.getFullYear() === today.getFullYear()) {
+				return `${targetDate.toLocaleString('default', {
 					month: 'short',
-				})} ${date.getDate()}${getOrdinalSuffix(date.getDate())}`;
+				})} ${targetDate.getDate()}${getOrdinalSuffix(targetDate.getDate())}`;
 			}
 			// Otherwise, show month and year
 			else {
-				return `${date.toLocaleString('default', {
+				return `${targetDate.toLocaleString('default', {
 					month: 'short',
-				})} ${date.getFullYear()}`;
+				})} ${targetDate.getFullYear()}`;
 			}
 		},
 

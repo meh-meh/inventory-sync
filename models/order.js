@@ -105,12 +105,17 @@ orderSchema.methods.updateFromEtsy = function (etsyData) {
  */
 orderSchema.methods.updateFromShopify = function (shopifyData) {
 	// Update shipping status based on Shopify fulfillment status
+	// TODO: double-check that changing from shopifyData.fulfillment_status.toLowerCase() to this isn't just masking the issue
 	this.shopify_fulfillment_status = shopifyData.fulfillment_status;
 	this.status =
-		shopifyData.fulfillment_status.toLowerCase() === 'fulfilled' ? 'shipped' : 'unshipped';
+		shopifyData.fulfillment_status && typeof shopifyData.fulfillment_status === 'string'
+			? shopifyData.fulfillment_status.toLowerCase() === 'fulfilled'
+				? 'shipped'
+				: 'unshipped'
+			: 'unshipped'; // Default to 'unshipped' if fulfillment_status is null or not a string
 
 	// Clear shipped date if not shipped
-	if (shopifyData.fulfillment_status.toLowerCase() !== 'fulfilled') {
+	if (this.status !== 'shipped') {
 		this.shipped_date = null;
 	} else if (shopifyData.fulfillments && shopifyData.fulfillments.length > 0) {
 		// Update shipped date from fulfillment
