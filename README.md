@@ -237,7 +237,7 @@ If MongoDB won't start:
 
 ### Sample Data Prep
 
-You can try running a query like the one below at a timestamp where you'll gather orders of multiple statuses to collect some test data. 
+You can try running a query like the one below at a timestamp where you'll gather orders of multiple statuses to collect some test data.
 
 ``` graphql
 query GetOrders($numGet: Int!, $cursor: String) {

@@ -1,3 +1,6 @@
+//TODO: Cancelled orders shouldn't show as unshipped
+//TODO: Order page state should persist when navigating back to the page
+
 /**
  * Order management routes and API endpoints
  * Handles display and synchronization of order data from Etsy and Shopify
@@ -85,6 +88,20 @@ router.get('/', async (req, res) => {
 			status: 'shipped',
 			items: { $exists: true, $ne: [] },
 			'items.is_digital': false,
+			// only show last 30 days of shipped orders. check order_date if shipped_date is not available
+			$or: [
+				{
+					shipped_date: {
+						$gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+						$ne: null,
+					},
+				},
+				{
+					order_date: {
+						$gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+					},
+				},
+			],
 		};
 		let cancelledQuery = {}; // Defined below based on marketplace
 
@@ -103,11 +120,17 @@ router.get('/', async (req, res) => {
 					{
 						marketplace: 'etsy',
 						'etsy_order_data.status': 'Canceled',
+						order_date: {
+							$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+						},
 					},
 					{
 						receipt_id: { $exists: true, $ne: null },
 						marketplace: { $exists: false },
 						'etsy_order_data.status': 'Canceled',
+						order_date: {
+							$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+						},
 					},
 				],
 				items: { $exists: true, $ne: [] },
@@ -150,11 +173,17 @@ router.get('/', async (req, res) => {
 					{
 						marketplace: 'etsy',
 						'etsy_order_data.status': 'Canceled',
+						order_date: {
+							$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+						},
 					},
 					{
 						receipt_id: { $exists: true, $ne: null },
 						marketplace: { $exists: false },
 						'etsy_order_data.status': 'Canceled',
+						order_date: {
+							$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+						},
 					},
 					{
 						marketplace: 'shopify',
@@ -180,8 +209,8 @@ router.get('/', async (req, res) => {
 			totalShopifyCount,
 		] = await Promise.all([
 			Order.find(unshippedQuery).sort({ order_date: -1 }).lean({ virtuals: true }),
-			Order.find(shippedQuery).sort({ shipped_date: -1 }).limit(50).lean({ virtuals: true }), // Limit recent shipped
-			Order.find(cancelledQuery).sort({ order_date: -1 }).limit(50).lean({ virtuals: true }), // Limit recent cancelled
+			Order.find(shippedQuery).sort({ shipped_date: -1 }).lean({ virtuals: true }), // Limit recent shipped
+			Order.find(cancelledQuery).sort({ order_date: -1 }).lean({ virtuals: true }), // Limit recent cancelled
 			Order.countDocuments({
 				$or: [
 					{ marketplace: 'etsy' },

@@ -105,6 +105,37 @@
         </div>
     </div>
 
+    <!-- Section for Ongoing Automatic Syncs -->
+    {{#if ongoingAutoSyncs.length}}
+    <div class="container mt-4">
+        <h4>Ongoing Automatic Syncs</h4>
+        <div class="row">
+            {{#each ongoingAutoSyncs}}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>{{this.marketplace}} - {{this.syncType}}</strong>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">Sync ID: <small class="text-muted">{{this.syncId}}</small></p>
+                        <p class="card-text">Status: {{this.currentPhase}}</p>
+                        <p class="card-text">Progress: {{this.progress}}%</p>
+                        <div class="progress mb-2">
+                            <div class="progress-bar" role="progressbar" style="width: {{this.progress}}%;" aria-valuenow="{{this.progress}}" aria-valuemin="0" aria-valuemax="100">{{this.progress}}%</div>
+                        </div>
+                        <p class="card-text">Started: {{formatDate this.startTime}}</p>
+                        {{#if this.error}}
+                        <p class="card-text text-danger">Error: {{this.error}}</p>
+                        {{/if}}
+                         <p class="card-text"><small>Items Processed: {{this.processedCount}} / {{this.totalCount}}</small></p>
+                    </div>
+                </div>
+            </div>
+            {{/each}}
+        </div>
+    </div>
+    {{/if}}
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     
     <!-- Sync Status Handling -->

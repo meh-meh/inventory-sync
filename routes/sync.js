@@ -1,4 +1,6 @@
 // TODO: Refactor this file to separate concerns and improve readability
+// TODO: Lock buttons until sync is complete
+// TODO: Ongoing syncs should live update like the other syncs
 
 /**
  * Marketplace synchronization routes and functions
@@ -216,8 +218,15 @@ router.get('/', async (req, res) => {
 				.select('updatedAt')
 				.maxTimeMS(10000)
 				.lean(),
-			// Note: lastInventorySync source is still TBD
 		]);
+
+		const ongoingAutoSyncs = [];
+		for (const status of syncStatus.values()) {
+			if (status.syncType && status.syncType.endsWith('-auto') && !status.complete) {
+				ongoingAutoSyncs.push(status);
+			}
+		}
+		logger.info('Ongoing automatic syncs:', ongoingAutoSyncs);
 
 		res.render('sync', {
 			stats: {
@@ -243,9 +252,10 @@ router.get('/', async (req, res) => {
 			lastShopifyProductSync: shopifyProductSyncTime
 				? new Date(shopifyProductSyncTime).toLocaleString()
 				: 'N/A',
+			ongoingAutoSyncs: ongoingAutoSyncs,
 		});
 	} catch (error) {
-		logger.error('Error fetching sync dashboard data:', error); // Log the error
+		logger.error('Error fetching sync dashboard data:', error);
 		req.flash('error', 'Error loading sync dashboard data');
 		// Render page with empty stats on error to avoid breaking layout
 		res.render('sync', {
@@ -257,6 +267,7 @@ router.get('/', async (req, res) => {
 				lastInventorySync: null,
 			},
 			activePage: 'sync',
+			ongoingAutoSyncs: [],
 		});
 	}
 });
@@ -1744,7 +1755,12 @@ async function syncEtsyOrders(req, res) {
 				$set: {
 					etsy_order_data: etsyOrderData,
 					marketplace: 'etsy',
-					status: etsyOrderData.is_shipped ? 'shipped' : 'unshipped', // Status updated here
+					status:
+						etsyOrderData.status !== 'Canceled'
+							? etsyOrderData.is_shipped
+								? 'shipped'
+								: 'unshipped'
+							: 'canceled', // Status updated here
 					buyer_name: etsyOrderData.name || existing?.buyer_name || 'N/A',
 					order_date: orderDate,
 					shipped_date: shippedDate,
@@ -1859,6 +1875,7 @@ async function syncShopifyOrders(req, res) {
 		const orderFieldsFragment = `{
             pageInfo {
                 hasNextPage
+               
                 endCursor
             }
             nodes {

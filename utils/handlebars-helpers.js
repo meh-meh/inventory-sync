@@ -104,17 +104,33 @@ module.exports = function () {
 				// logger.debug('formatDate helper received null/undefined date');
 				return 'N/A';
 			}
-			// Else check if date was today
-			else if (date.getDate() === today.getDate() && date >= today - 24 * 60 * 60 * 1000) {
+
+			const noonToday = new Date(today);
+			noonToday.setHours(12, 0, 0, 0);
+
+			const noonDate = new Date(date);
+			noonDate.setHours(12, 0, 0, 0);
+
+			const diffDays = (noonToday - noonDate) / (1000 * 60 * 60 * 24);
+
+			// Check if date was today
+			if (diffDays < 1) {
 				return 'Today';
 			}
 			// Else check if date was yesterday
-			else if (date >= today - 24 * 60 * 60 * 1000) {
+			else if (diffDays < 2) {
 				return 'Yesterday';
 			}
-			// Else check if date was within the last 7 days
-			else if (date >= today - 7 * 24 * 60 * 60 * 1000) {
-				return `${Math.floor((today - date) / (1000 * 60 * 60 * 24))} days ago`;
+			// Else check if date was an earlier day in the current week (e.g., Monday if today is Wednesday)
+			else if (diffDays <= noonToday.getDay()) {
+				// noonToday.getDay() is 0 for Sunday, 1 for Monday, ..., 6 for Saturday.
+				// Since "Today" (diffDays < 1) and "Yesterday" (diffDays < 2) are already handled,
+				// this condition effectively covers diffDays >= 2 up to the current day of the week.
+				return new Date(date).toLocaleDateString('default', { weekday: 'long' });
+			}
+			// Else check if date is within 7 days of the previous Sunday. show "Last Week"
+			else if (diffDays <= noonToday.getDay() + 7) {
+				return 'Last Week';
 			}
 			// Else check if date was this year
 			else if (date.getFullYear() === today.getFullYear()) {
