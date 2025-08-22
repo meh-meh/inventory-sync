@@ -32,7 +32,7 @@ const orderSchema = new mongoose.Schema({
 	buyer_name: String,
 	status: {
 		type: String,
-		enum: ['unshipped', 'shipped'],
+		enum: ['unshipped', 'shipped', 'cancelled'],
 	},
 	shipped_date: Date,
 	items: [orderItemSchema],
@@ -66,6 +66,15 @@ orderSchema.virtual('is_all_digital').get(function () {
  * @returns {Object} The updated order document
  */
 orderSchema.methods.updateFromEtsy = function (etsyData) {
+	// Handle cancellations reported by Etsy
+	if (etsyData.status && String(etsyData.status).toLowerCase() === 'canceled') {
+		this.etsy_is_shipped = false;
+		this.status = 'cancelled';
+		this.shipped_date = null;
+		this.last_etsy_sync = new Date();
+		return this;
+	}
+
 	// Update shipping status
 	this.etsy_is_shipped = etsyData.is_shipped;
 	this.status = etsyData.is_shipped ? 'shipped' : 'unshipped';
@@ -104,6 +113,15 @@ orderSchema.methods.updateFromEtsy = function (etsyData) {
  * @returns {Object} The updated order document
  */
 orderSchema.methods.updateFromShopify = function (shopifyData) {
+	// Handle cancellations reported by Shopify
+	if (shopifyData.cancelled_at) {
+		this.shopify_fulfillment_status = shopifyData.fulfillment_status;
+		this.status = 'cancelled';
+		this.shipped_date = null;
+		this.last_shopify_sync = new Date();
+		return this;
+	}
+
 	// Update shipping status based on Shopify fulfillment status
 	// TODO: double-check that changing from shopifyData.fulfillment_status.toLowerCase() to this isn't just masking the issue
 	this.shopify_fulfillment_status = shopifyData.fulfillment_status;

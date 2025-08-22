@@ -227,11 +227,22 @@ async function getShopId() {
 		);
 
 		if (!response.ok) {
+			// Attempt to read response body for better diagnostics (may be JSON or text)
+			let bodyText = '';
+			try {
+				bodyText = await response.text();
+			} catch (readErr) {
+				logger.warn('Failed to read Etsy response body for diagnostics', {
+					readErr: readErr.message,
+				});
+			}
+
 			logger.error('Failed to fetch shop ID', {
 				status: response.status,
 				statusText: response.statusText,
+				bodySnippet: bodyText ? bodyText.substring(0, 1000) : null,
 			});
-			throw new Error('Failed to fetch shop ID');
+			throw new Error(`Failed to fetch shop ID: ${response.status} ${response.statusText}`);
 		}
 
 		const data = await response.json();

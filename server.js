@@ -27,6 +27,7 @@ const orderRoutes = require('./routes/orders');
 const inventoryRoutes = require('./routes/inventory');
 const syncRoutes = require('./routes/sync');
 const settingsRoutes = require('./routes/settings');
+const debugRoutes = require('./routes/debug');
 
 // Import custom middleware and helpers
 const configHandlebarsHelpers = require('./utils/handlebars-helpers');
@@ -83,6 +84,7 @@ app.use('/orders', orderRoutes);
 app.use('/inventory', inventoryRoutes);
 app.use('/sync', syncRoutes);
 app.use('/settings', settingsRoutes);
+app.use('/debug', debugRoutes);
 
 /**
  * Main dashboard route

@@ -120,17 +120,17 @@ router.get('/', async (req, res) => {
 					{
 						marketplace: 'etsy',
 						'etsy_order_data.status': 'Canceled',
-						order_date: {
-							$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
-						},
+						// order_date: {
+						// 	$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+						// },
 					},
 					{
 						receipt_id: { $exists: true, $ne: null },
 						marketplace: { $exists: false },
 						'etsy_order_data.status': 'Canceled',
-						order_date: {
-							$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
-						},
+						// order_date: {
+						// 	$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+						// },
 					},
 				],
 				items: { $exists: true, $ne: [] },
@@ -173,17 +173,17 @@ router.get('/', async (req, res) => {
 					{
 						marketplace: 'etsy',
 						'etsy_order_data.status': 'Canceled',
-						order_date: {
-							$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
-						},
+						// order_date: {
+						// 	$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+						// },
 					},
 					{
 						receipt_id: { $exists: true, $ne: null },
 						marketplace: { $exists: false },
 						'etsy_order_data.status': 'Canceled',
-						order_date: {
-							$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
-						},
+						// order_date: {
+						// 	$gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+						// },
 					},
 					{
 						marketplace: 'shopify',

@@ -436,14 +436,84 @@ router.get('/connect-etsy', (req, res) => {
 		.replace(/=/g, '');
 
 	// Save the code verifier for later use
-	dotenv.set('CLIENT_VERIFIER', codeVerifier);
-	process.env.CLIENT_VERIFIER = codeVerifier;
+	// Prefer storing the PKCE verifier in the user's session (prevents races/multi-user collisions)
+	if (req && req.session) {
+		req.session.codeVerifier = codeVerifier;
+		logger.debug('Saved PKCE code verifier to session for OAuth connect');
+	} else {
+		// Fallback for environments without session support (not recommended)
+		dotenv.set('CLIENT_VERIFIER', codeVerifier);
+		process.env.CLIENT_VERIFIER = codeVerifier;
+		logger.warn('Session not available; falling back to process.env.CLIENT_VERIFIER');
+	}
 
 	// Redirect to Etsy OAuth
-	const scopes = 'transactions_r transactions_w listings_r listings_w';
-	const authUrl = `https://www.etsy.com/oauth/connect?response_type=code&client_id=${clientID}&redirect_uri=${redirectURI}&scope=${encodeURIComponent(scopes)}&state=superstate&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+	// Use scopes that allow reading shop info (shops_r) and user email/address where helpful.
+	// Request only approved/read scopes by default. Remove write scopes (e.g., listings_w)
+	// which may require additional app permissions and can trigger invalid_scope.
+	const requestedScopes = [
+		'shops_r',
+		'listings_w',
+		'transactions_w',
+		'transactions_r',
+		'listings_r',
+	];
+	const scopes = requestedScopes.filter(Boolean).join(' ');
 
-	res.redirect(authUrl);
+	// Generate a per-request state and save it in session for CSRF protection and to tie verifier -> auth flow
+	const state = Math.random().toString(36).substring(2);
+	if (req && req.session) {
+		req.session.oauthState = state;
+		logger.debug('Saved oauth state to session for PKCE flow');
+	} else {
+		logger.warn('Session not available: oauth state will not be stored in session');
+	}
+
+	const authUrl = `https://www.etsy.com/oauth/connect?response_type=code&client_id=${clientID}&redirect_uri=${redirectURI}&scope=${encodeURIComponent(
+		scopes
+	)}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+	// Log the authorization URL (safe for dev only) to help debug invalid_scope issues
+	logger.debug('Etsy OAuth authorization URL constructed', { authUrl });
+
+	// Ensure the session is persisted before performing the external redirect.
+	if (req && req.session) {
+		try {
+			req.session.save(err => {
+				if (err) {
+					logger.error('Failed to save session before OAuth redirect', {
+						error: err.message,
+					});
+				} else {
+					logger.debug('Session saved before OAuth redirect');
+				}
+				return res.redirect(authUrl);
+			});
+		} catch (err) {
+			logger.error('Exception while saving session before redirect', { error: err.message });
+			return res.redirect(authUrl);
+		}
+	} else {
+		// No session - just redirect
+		return res.redirect(authUrl);
+	}
+});
+
+// Temporary debug endpoint: returns minimal session values useful for debugging PKCE flow
+// Access only in local/dev environments. Removes nothing and does not expose tokens.
+router.get('/debug-session', (req, res) => {
+	try {
+		const sessionInfo = {
+			codeVerifier: req?.session?.codeVerifier || null,
+			oauthState: req?.session?.oauthState || null,
+			// include cookies header to help debug SameSite/cookie issues
+			cookies: req.headers.cookie || null,
+		};
+		res.json({ ok: true, session: sessionInfo });
+	} catch (err) {
+		logger.error('Error in debug-session endpoint', { error: err.message });
+		res.status(500).json({ ok: false, error: 'Failed to read session' });
+	}
 });
 
 /**
