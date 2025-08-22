@@ -106,14 +106,40 @@ router.get('/api/data', async (req, res) => {
 				'shopify_data.variant_id': 1,
 				'shopify_data.inventory_quantity': 1,
 				'shopify_data.last_synced': 1,
+				// include raw shopify product images (GraphQL edges) and online_store_url as fallback
+				'raw_shopify_data.product.images': 1,
+				'raw_shopify_data.product.online_store_url': 1,
 			})
 			.sort(sort)
 			.skip(skip)
 			.limit(limit);
 
-		// Calculate available quantity for each product
+		// Helper to pick a thumbnail: prefer Etsy image, then Shopify raw originalSrc, then online_store_url
+		function pickThumbnail(p) {
+			if (p.etsy_data && Array.isArray(p.etsy_data.images) && p.etsy_data.images.length > 0) {
+				return p.etsy_data.images[0].url;
+			}
+			const rawProd =
+				p.raw_shopify_data && p.raw_shopify_data.product
+					? p.raw_shopify_data.product
+					: null;
+			if (
+				rawProd &&
+				rawProd.images &&
+				Array.isArray(rawProd.images.edges) &&
+				rawProd.images.edges.length > 0
+			) {
+				const first = rawProd.images.edges[0];
+				return (first && first.node && (first.node.originalSrc || first.node.url)) || null;
+			}
+			if (rawProd && rawProd.online_store_url) return rawProd.online_store_url;
+			return null;
+		}
+
+		// Calculate available quantity and thumbnail for each product
 		const productsWithAvailability = products.map(p => {
 			p.quantity_available = (p.quantity_on_hand || 0) - (p.quantity_committed || 0);
+			p.thumbnail_url = pickThumbnail(p);
 			return p;
 		});
 

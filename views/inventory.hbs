@@ -814,10 +814,11 @@
             const rawEtsyDataEl = document.getElementById('rawEtsyDataContent');
              if (rawEtsyDataEl) rawEtsyDataEl.textContent = JSON.stringify(etsyData, null, 2);
 
-             // Etsy Images Carousel
+            // Image Carousel: prefer Etsy images, then raw Shopify product images (originalSrc)
             const carouselInner = document.getElementById('carouselImages');
             if (carouselInner) {
                 carouselInner.innerHTML = ''; // Clear previous images
+                // Prefer Etsy images when available
                 if (etsyData.images && etsyData.images.length > 0) {
                     etsyData.images.forEach((image, index) => {
                         const item = document.createElement('div');
@@ -827,18 +828,36 @@
                         img.src = image.url_fullxfull || image.url_570xN || image.url_170x135 || image.url_75x75 || image.url;
                         img.className = 'd-block w-100';
                         img.alt = product.name || 'Product image';
-                        img.style.objectFit = 'contain'; // Ensure image fits well
-                        img.style.maxHeight = '400px'; // Limit height
+                        img.style.objectFit = 'contain';
+                        img.style.maxHeight = '400px';
                         item.appendChild(img);
                         carouselInner.appendChild(item);
                     });
-                     // Ensure carousel controls are visible if there are images
+                    // Ensure carousel controls are visible if there are images
                     const carouselControls = productDetailsModalElement.querySelectorAll('.carousel-control-prev, .carousel-control-next');
                     carouselControls.forEach(el => el.classList.toggle('d-none', etsyData.images.length <= 1));
+
+                // Fallback to raw Shopify product images (GraphQL edges -> node.originalSrc)
+                } else if (product.raw_shopify_data && product.raw_shopify_data.product && product.raw_shopify_data.product.images && product.raw_shopify_data.product.images.edges && product.raw_shopify_data.product.images.edges.length > 0) {
+                    product.raw_shopify_data.product.images.edges.forEach((edge, index) => {
+                        const item = document.createElement('div');
+                        item.className = `carousel-item ${index === 0 ? 'active' : ''}`;
+                        const img = document.createElement('img');
+                        img.src = edge.node.originalSrc || edge.node.url || '';
+                        img.className = 'd-block w-100';
+                        img.alt = edge.node.altText || product.name || 'Product image';
+                        img.style.objectFit = 'contain';
+                        img.style.maxHeight = '400px';
+                        item.appendChild(img);
+                        carouselInner.appendChild(item);
+                    });
+                    const carouselControls = productDetailsModalElement.querySelectorAll('.carousel-control-prev, .carousel-control-next');
+                    carouselControls.forEach(el => el.classList.toggle('d-none', product.raw_shopify_data.product.images.edges.length <= 1));
+
                 } else {
-                     // Optionally show a placeholder if no images
-                     carouselInner.innerHTML = '<div class="carousel-item active"><div class="d-flex justify-content-center align-items-center h-100"><span class="text-muted">No images available</span></div></div>';
-                     const carouselControls = productDetailsModalElement.querySelectorAll('.carousel-control-prev, .carousel-control-next');
+                    // No images available
+                    carouselInner.innerHTML = '<div class="carousel-item active"><div class="d-flex justify-content-center align-items-center h-100"><span class="text-muted">No images available</span></div></div>';
+                    const carouselControls = productDetailsModalElement.querySelectorAll('.carousel-control-prev, .carousel-control-next');
                     carouselControls.forEach(el => el.classList.add('d-none'));
                 }
             }

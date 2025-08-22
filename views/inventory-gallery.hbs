@@ -424,33 +424,26 @@
                     tr.style.cursor = 'pointer';
                     tr.setAttribute('data-sku', product.sku);
                     
-                    // Add image cell
+                    // Add image cell: prefer Etsy image, then raw Shopify product images (originalSrc)
                     const imageCell = document.createElement('td');
                     imageCell.className = 'image-cell';
                     const img = document.createElement('img');
                     img.className = 'img-thumbnail';
                     img.width = 50;
                     img.alt = product.name || 'Product image';
-                    
-                    // Handle image source - simplified to just use the url property
-                    if (product.etsy_data && product.etsy_data.images && product.etsy_data.images.length > 0) {
-                        // Just use the main image URL since we don't have thumbnail variants
-                        img.src = product.etsy_data.images[0].url;
-                        
-                        // Add error handler for image loading
-                        img.onerror = function() {
-                            this.onerror = null;
-                            this.style.display = 'none'; // Hide broken images
-                        };
+
+                    // Use server-provided thumbnail_url when available (preferred: Etsy -> Shopify raw -> online_store_url)
+                    if (product.thumbnail_url) {
+                        img.src = product.thumbnail_url;
+                        img.onerror = function() { this.onerror = null; this.style.display = 'none'; };
+                        imageCell.appendChild(img);
                     } else {
-                        // If no image available, show a text indicator instead
                         img.style.display = 'none';
                         const noImg = document.createElement('span');
                         noImg.className = 'badge bg-secondary';
                         noImg.textContent = 'No image';
                         imageCell.appendChild(noImg);
                     }
-                    imageCell.appendChild(img);
                     tr.appendChild(imageCell);
                     
                     // Add SKU cell

@@ -32,8 +32,8 @@
                     <div class="card-body text-center">
                         {{#if product.etsy_data.images.0.url}}
                             <img src="{{product.etsy_data.images.0.url}}" alt="{{product.name}}" class="product-image img-thumbnail">
-                        {{else if product.shopify_data.images.0.url}}
-                             <img src="{{product.shopify_data.images.0.url}}" alt="{{product.name}}" class="product-image img-thumbnail">
+                        {{else if product.raw_shopify_data.product.images.edges.0.node.originalSrc}}
+                             <img src="{{product.raw_shopify_data.product.images.edges.0.node.originalSrc}}" alt="{{product.name}}" class="product-image img-thumbnail">
                         {{else}}
                             <div class="text-muted p-5 border rounded bg-light">
                                 <i class="bi bi-image" style="font-size: 3rem;"></i><br>
