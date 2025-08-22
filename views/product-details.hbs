@@ -107,6 +107,7 @@
                                 <dd class="col-sm-8">{{product.etsy_data.state}}</dd>
                             </dl>
                             <p class="sync-info">Last Synced: {{formatDate product.etsy_data.last_synced}}</p>
+                            <a class="btn btn-sm btn-outline-secondary me-2" href="https://www.etsy.com/listing/{{product.etsy_data.listing_id}}" target="_blank" rel="noopener noreferrer">View on Etsy</a>
                             <button class="btn btn-sm btn-primary me-2" onclick="syncProduct('{{product.sku}}', 'etsy')">Sync with Etsy</button>
                             <button class="btn btn-sm btn-danger" onclick="unlinkProduct('{{product.sku}}', 'etsy')">Unlink from Etsy</button>
                         {{else}}
@@ -141,8 +142,55 @@
                                 <dd class="col-sm-8">{{product.shopify_data.inventory_quantity}}</dd>
                             </dl>
                             <p class="sync-info">Last Synced: {{formatDate product.shopify_data.last_synced}}</p>
-                            <button class="btn btn-sm btn-success me-2" onclick="syncProduct('{{product.sku}}', 'shopify')">Sync with Shopify</button>
-                            <button class="btn btn-sm btn-danger" onclick="unlinkProduct('{{product.sku}}', 'shopify')">Unlink from Shopify</button>
+                                {{!-- View on Shopify: prefer a direct product_url, then storefront (shop_domain + handle), then admin fallback (shop_domain + product_id) --}}
+                                {{!-- Prefer shopify_data fields, fall back to raw_shopify_data.product if present --}}
+                                {{#if product.shopify_data.product_url}}
+                                    <a class="btn btn-sm btn-outline-secondary me-2" href="{{product.shopify_data.product_url}}" target="_blank" rel="noopener noreferrer">View on Shopify</a>
+                                {{else}}
+                                    {{!-- Use product.shopify_data.shop_domain if present, otherwise fall back to shopifyShopName passed from the server --}}
+                                    {{#if product.shopify_data.shop_domain}}
+                                        {{#if product.shopify_data.handle}}
+                                            <a class="btn btn-sm btn-outline-secondary me-2" href="https://{{product.shopify_data.shop_domain}}/products/{{product.shopify_data.handle}}" target="_blank" rel="noopener noreferrer">View on Shopify</a>
+                                        {{else if product.shopify_data.product_id}}
+                                            {{!-- Prefer admin.shopify.com pattern if shopifyShopName is available --}}
+                                            {{#if shopifyShopName}}
+                                                <a class="btn btn-sm btn-outline-secondary me-2" href="https://admin.shopify.com/store/{{shopifyShopName}}/products/{{product.shopify_data.product_id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                            {{else}}
+                                                <a class="btn btn-sm btn-outline-secondary me-2" href="https://{{product.shopify_data.shop_domain}}/admin/products/{{product.shopify_data.product_id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                            {{/if}}
+                                        {{/if}}
+                                    {{else if shopifyShopName}}
+                                        {{!-- Only show admin links when we have the store name and a product id. Avoid using shopifyShopName as a domain directly (prevents malformed URLs). --}}
+                                        {{#if product.shopify_data.product_id}}
+                                            <a class="btn btn-sm btn-outline-secondary me-2" href="https://admin.shopify.com/store/{{shopifyShopName}}/products/{{product.shopify_data.product_id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                        {{/if}}
+                                    {{else if product.raw_shopify_data.product}}
+                                        {{!-- raw_shopify_data.product may contain online_store_url, handle, id, etc. --}}
+                                        {{#with product.raw_shopify_data.product}}
+                                            {{#if online_store_url}}
+                                                <a class="btn btn-sm btn-outline-secondary me-2" href="{{online_store_url}}" target="_blank" rel="noopener noreferrer">View on Shopify</a>
+                                            {{else}}
+                                                {{!-- Try to build using available domains --}}
+                                                {{#if handle}}
+                                                    {{#if ../product.shopify_data.shop_domain}}
+                                                        <a class="btn btn-sm btn-outline-secondary me-2" href="https://{{../product.shopify_data.shop_domain}}/products/{{handle}}" target="_blank" rel="noopener noreferrer">View on Shopify</a>
+                                                    {{else if ../shopifyShopName}}
+                                                        {{!-- Avoid using shopifyShopName as a raw domain; only render admin link when we have product id --}}
+                                                        <a class="btn btn-sm btn-outline-secondary me-2" href="https://admin.shopify.com/store/{{../shopifyShopName}}/products/{{../product.shopify_data.product_id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                                    {{/if}}
+                                                {{else if id}}
+                                                    {{#if ../shopifyShopName}}
+                                                        <a class="btn btn-sm btn-outline-secondary me-2" href="https://admin.shopify.com/store/{{../shopifyShopName}}/products/{{id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                                    {{else if ../product.shopify_data.shop_domain}}
+                                                        <a class="btn btn-sm btn-outline-secondary me-2" href="https://{{../product.shopify_data.shop_domain}}/admin/products/{{id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                                    {{/if}}
+                                                {{/if}}
+                                            {{/if}}
+                                        {{/with}}
+                                    {{/if}}
+                                {{/if}}
+                                <button class="btn btn-sm btn-success me-2" onclick="syncProduct('{{product.sku}}', 'shopify')">Sync with Shopify</button>
+                                <button class="btn btn-sm btn-danger" onclick="unlinkProduct('{{product.sku}}', 'shopify')">Unlink from Shopify</button>
                         {{else}}
                             <p>This product is not currently linked to a Shopify product/variant.</p>
                             <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#linkShopifyModal">Link to Shopify Product</button>

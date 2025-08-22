@@ -850,15 +850,37 @@
             setContent('shopifyQuantity', shopifyData.inventory_quantity);
 
             const shopifyLink = document.getElementById('shopifyLink');
-             if (shopifyLink) {
-                 // Need a way to construct the Shopify product URL (e.g., requires shop domain and product handle or ID)
-                 // Example (needs adjustment based on available data):
-                 // if (shopifyData.product_id && shopifyData.shop_domain) {
-                 //    shopifyLink.href = `https://${shopifyData.shop_domain}/admin/products/${shopifyData.product_id}`;
-                 //    shopifyLink.classList.remove('d-none');
-                 // } else {
-                    shopifyLink.classList.add('d-none'); // Hide if link cannot be constructed
-                 // }
+            if (shopifyLink) {
+                // Prefer an explicit product_url if provided by the backend
+                if (shopifyData.product_url) {
+                    shopifyLink.href = shopifyData.product_url;
+                    shopifyLink.classList.remove('d-none');
+                } else {
+                    // Determine available identifiers. We should only build a URL when we have a reliable domain or can use the admin.shopify.com pattern with a stored shop name.
+                    const shopDomain = shopifyData.shop_domain || null;
+                    const storedShop = product.shopifyShopName || null; // returned by API when available
+
+                    // If we have the public shop domain and a handle, build storefront link
+                    if (shopDomain && shopifyData.handle) {
+                        shopifyLink.href = `https://${shopDomain}/products/${shopifyData.handle}`;
+                        shopifyLink.classList.remove('d-none');
+
+                    // If we have a stored shop name and a product id, prefer the admin.shopify.com/store/{shop}/products/{id} pattern
+                    } else if (storedShop && shopifyData.product_id) {
+                        shopifyLink.href = `https://admin.shopify.com/store/${storedShop}/products/${shopifyData.product_id}`;
+                        shopifyLink.classList.remove('d-none');
+
+                    // If raw shopify product contains an online_store_url, use it
+                    } else if (product.raw_shopify_data && product.raw_shopify_data.product && product.raw_shopify_data.product.online_store_url) {
+                        shopifyLink.href = product.raw_shopify_data.product.online_store_url;
+                        shopifyLink.classList.remove('d-none');
+
+                    } else {
+                        // No reliable URL can be constructed; hide the link to avoid malformed hrefs
+                        shopifyLink.classList.add('d-none');
+                        shopifyLink.removeAttribute('href');
+                    }
+                }
             }
              const rawShopifyDataEl = document.getElementById('rawShopifyDataContent');
              if (rawShopifyDataEl) rawShopifyDataEl.textContent = JSON.stringify(shopifyData, null, 2);

@@ -149,6 +149,34 @@ router.get('/product/:sku', async (req, res) => {
 		// Convert to object with availability
 		const productData = product.toObject();
 		productData.quantity_available = calculateAvailableQuantity(product);
+		// Provide shop domain fallback to the client so storefront/admin links can be built
+		let shopifyShopName = process.env.SHOPIFY_SHOP_NAME || process.env.SHOPIFY_SHOP || null;
+		if (!shopifyShopName) {
+			try {
+				const Settings = require('../models/settings');
+				const saved = await Settings.getSetting('shopifyShopName');
+				if (saved) shopifyShopName = saved;
+			} catch {
+				// Ignore and continue without persistent fallback
+			}
+		}
+
+		// Attach only if we have a non-empty string to avoid passing falsy values
+		if (shopifyShopName) productData.shopifyShopName = shopifyShopName;
+
+		// Provide a helper boolean to indicate if Shopify linkage looks valid
+		const sd = product.shopify_data || {};
+		const raw =
+			product.raw_shopify_data && product.raw_shopify_data.product
+				? product.raw_shopify_data.product
+				: null;
+		const shopifyConnected = !!(
+			sd.product_url ||
+			sd.product_id ||
+			sd.handle ||
+			(raw && (raw.online_store_url || raw.handle || raw.id))
+		);
+		productData.shopifyConnected = shopifyConnected;
 
 		res.json(productData);
 	} catch (error) {
@@ -177,7 +205,16 @@ router.get('/details/:sku', async (req, res) => {
 
 		// Check if product is connected to marketplaces
 		const etsyConnected = !!product.etsy_data?.listing_id;
-		const shopifyConnected = !!product.shopify_data?.product_id;
+		// Treat Shopify as connected if any identifying Shopify data exists
+		const shopifyConnected = !!(
+			(product.shopify_data &&
+				(product.shopify_data.product_id ||
+					product.shopify_data.handle ||
+					product.shopify_data.product_url ||
+					product.shopify_data.shop_domain)) ||
+			// Also consider raw shopify product data as evidence of a connection
+			(product.raw_shopify_data && product.raw_shopify_data.product)
+		);
 
 		// Convert Mongoose document to plain object *after* calculations
 		const productData = product.toObject();
@@ -188,10 +225,23 @@ router.get('/details/:sku', async (req, res) => {
 			productData: JSON.stringify(productData, null, 2),
 		}); // Log the plain object
 
+		// Determine shopifyShopName to pass to templates (env -> settings)
+		let shopifyShopName = process.env.SHOPIFY_SHOP_NAME || process.env.SHOPIFY_SHOP || null;
+		if (!shopifyShopName) {
+			try {
+				const Settings = require('../models/settings');
+				const saved = await Settings.getSetting('shopifyShopName');
+				if (saved) shopifyShopName = saved;
+			} catch {
+				// ignore
+			}
+		}
+
 		res.render('product-details', {
 			product: productData, // Pass the plain JavaScript object
 			etsyConnected,
 			shopifyConnected,
+			shopifyShopName,
 			activePage: 'inventory', // Add activePage
 		});
 	} catch (error) {
