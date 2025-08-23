@@ -309,3 +309,90 @@ module.exports = {
 	API_BASE_URL,
 	getShippingProfiles,
 };
+
+/**
+ * Fetch a single Etsy listing by ID
+ * @param {String} listingId
+ * @returns {Promise<Object>} listing data
+ */
+async function getListing(listingId) {
+	try {
+		const accessToken = authService.getAccessToken();
+		if (!accessToken) throw new Error('No Etsy access token available');
+
+		const response = await etsyRequest(
+			() =>
+				fetch(`${API_BASE_URL}/application/listings/${listingId}`, {
+					headers: {
+						'x-api-key': process.env.ETSY_API_KEY,
+						Authorization: `Bearer ${accessToken}`,
+					},
+				}),
+			{ endpoint: '/listings/:listing_id', method: 'GET', listing_id: listingId }
+		);
+
+		if (!response.ok) {
+			const text = await response.text().catch(() => '');
+			throw new Error(
+				`Failed to fetch listing ${listingId}: ${response.status} ${response.statusText} ${text.substring(0, 200)}`
+			);
+		}
+		const data = await response.json();
+		return data;
+	} catch (err) {
+		logger.error('getListing error', { listingId, error: err.message });
+		throw err;
+	}
+}
+
+/**
+ * Update an Etsy listing to set the SKU (sku field on a listing)
+ * Requires Etsy write scopes for listings
+ * @param {String} listingId
+ * @param {String} sku
+ */
+async function updateListingSku(listingId, sku) {
+	try {
+		const accessToken = authService.getAccessToken();
+		if (!accessToken) throw new Error('No Etsy access token available');
+
+		const body = { sku };
+
+		const shopId = await getShopId();
+		const response = await etsyRequest(
+			() =>
+				fetch(`${API_BASE_URL}/application/shops/${shopId}/listings/${listingId}`, {
+					method: 'PATCH',
+					headers: {
+						'x-api-key': process.env.ETSY_API_KEY,
+						Authorization: `Bearer ${accessToken}`,
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify(body),
+				}),
+			{
+				endpoint: '/shops/:shop_id/listings/:listing_id',
+				method: 'PATCH',
+				listing_id: listingId,
+			}
+		);
+
+		if (!response.ok) {
+			const text = await response.text().catch(() => '');
+			throw new Error(
+				`Failed to update listing ${listingId}: ${response.status} ${response.statusText} ${text.substring(0, 200)}`
+			);
+		}
+
+		const data = await response.json();
+		logger.info('Updated listing SKU on Etsy', { listingId, sku });
+		return data;
+	} catch (err) {
+		logger.error('updateListingSku error', { listingId, sku, error: err.message });
+		throw err;
+	}
+}
+
+// extend exports with new helpers
+module.exports.getListing = getListing;
+module.exports.updateListingSku = updateListingSku;

@@ -21,7 +21,7 @@ const RETRY_DELAY = parseInt(process.env.ETSY_API_RETRY_DELAY, 10) || 1000; // A
  * @param {boolean} includeNonActive - Flag to include non-active listings in the sync (added to match usage)
  * @returns {Promise<Object>} Object containing all fetched listings and counts by status
  */
-async function fetchAllListings(shop_id, syncId, includeNonActive = false) {
+async function fetchAllListings(shop_id, syncId, includeNonActive = true) {
 	// Added includeNonActive parameter
 	const startTime = performance.now();
 	const listingCounts = {

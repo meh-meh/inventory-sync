@@ -1,0 +1,40 @@
+<div class="container mt-4">
+  <h2>Etsy Update Test (dev only)</h2>
+  <form id="etsyTestForm" method="post" action="/debug/etsy-test">
+    <div class="mb-3">
+      <label for="listingId" class="form-label">Etsy Listing ID</label>
+      <input type="text" class="form-control" id="listingId" name="listingId" placeholder="e.g. 4303887099">
+    </div>
+    <div class="mb-3">
+      <label for="sku" class="form-label">SKU to set</label>
+      <input type="text" class="form-control" id="sku" name="sku" placeholder="e.g. ope">
+    </div>
+    <button type="submit" class="btn btn-primary">Run Test</button>
+  </form>
+
+  <div id="resultArea" class="mt-3"></div>
+
+  <script>
+    (function(){
+      const form = document.getElementById('etsyTestForm');
+      const resultArea = document.getElementById('resultArea');
+      form.addEventListener('submit', async function(e){
+        e.preventDefault();
+        resultArea.innerHTML = '<div class="text-muted">Running...</div>';
+        const fd = new FormData(form);
+        const body = { listingId: fd.get('listingId'), sku: fd.get('sku') };
+        try {
+          const resp = await fetch('/debug/etsy-test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          const data = await resp.json();
+          if (resp.ok) {
+            resultArea.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+          } else {
+            resultArea.innerHTML = '<div class="text-danger">' + (data.error || 'Error') + '</div>' + (data && data.error?('<pre>'+JSON.stringify(data,null,2)+'</pre>'):'');
+          }
+        } catch (err) {
+          resultArea.innerHTML = '<div class="text-danger">Network error</div>';
+        }
+      });
+    })();
+  </script>
+</div>
