@@ -465,7 +465,9 @@ router.post('/:sku/link-etsy', async (req, res) => {
 				etsyUpdateResult = await etsyHelpers.updateListingSku(listing_id_to_update, newSku);
 			}
 		} catch (e) {
+			// Capture the error details to return to the client for debugging
 			logger.warn('Failed to write SKU to Etsy listing', { error: e.message });
+			etsyUpdateResult = { error: e.message };
 		}
 
 		// Save updated target product

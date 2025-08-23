@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Order = require('../models/order');
+const etsyHelpers = require('../utils/etsy-helpers');
 
 // Debug endpoint for the backfill script
 // Returns counts and a small sample of orders that the backfill would consider
@@ -135,3 +136,33 @@ router.get('/backfill-stale-orders', async (req, res) => {
 });
 
 module.exports = router;
+
+// --- Debug: Etsy test UI and endpoint ---
+// GET /debug/etsy-test -> render a small form (dev-only)
+router.get('/etsy-test', (req, res) => {
+	if (process.env.NODE_ENV === 'production') return res.status(403).send('Forbidden');
+	res.render('debug-etsy-test', { activePage: 'debug' });
+});
+
+// POST /debug/etsy-test -> run updateListingSku(listingId, sku)
+router.post('/etsy-test', async (req, res) => {
+	if (process.env.NODE_ENV === 'production')
+		return res.status(403).json({ error: 'Forbidden in production' });
+	try {
+		const { listingId, sku } = req.body || {};
+		if (!listingId || !sku)
+			return res.status(400).json({ error: 'listingId and sku are required' });
+
+		// Run the helper and return result or error details
+		try {
+			const result = await etsyHelpers.updateListingSku(listingId.toString(), sku.toString());
+			return res.json({ success: true, result });
+		} catch (err) {
+			// Return error message and status if available
+			return res.status(500).json({ success: false, error: err.message || String(err) });
+		}
+	} catch (err) {
+		console.error('Debug etsy-test error', err);
+		res.status(500).json({ error: err.message });
+	}
+});

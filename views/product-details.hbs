@@ -326,8 +326,13 @@
                     });
                     const data = await resp.json();
                     if (resp.ok) {
-                        linkResult.innerHTML = '<div class="text-success">Linked successfully. Refreshing...</div>';
-                        setTimeout(()=>location.reload(), 800);
+                        // If Etsy update returned an error object, show it and don't auto-refresh
+                        if (data.etsyUpdateResult && data.etsyUpdateResult.error) {
+                            linkResult.innerHTML = `<div class="text-warning">Linked locally, but Etsy update failed: ${escapeHtml(data.etsyUpdateResult.error)}</div>`;
+                        } else {
+                            linkResult.innerHTML = '<div class="text-success">Linked successfully. Refreshing...</div>';
+                            setTimeout(()=>location.reload(), 800);
+                        }
                     } else {
                         linkResult.innerHTML = `<div class="text-danger">Error: ${escapeHtml(data.error || 'Failed to link')}</div>`;
                     }
