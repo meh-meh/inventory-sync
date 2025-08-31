@@ -24,37 +24,88 @@ A Node.js application for managing Etsy inventory and orders across multiple mar
 ```plaintext
 ├── models/             # Database models
 │   ├── order.js        # Order model definition
-│   └── product.js      # Product model definition
-├── routes/             # Route handlers
-│   ├── auth.js         # Authentication routes
-│   ├── inventory.js    # Inventory management routes
-│   ├── orders.js       # Order management routes
-│   ├── settings.js     # Application settings routes
-│   └── sync.js         # Data synchronization routes
-├── utils/              # Helper functions
-│   ├── etsy-helpers.js # Etsy API helper functions
-│   └── logger.js       # Logging utility
-├── views/              # Handlebars templates
-│   ├── layouts/        # Layout templates
-│   └── *.hbs           # View templates
+# Etsy Inventory Manager
+
+A Node.js application for managing Etsy inventory and orders across multiple marketplaces.
+
+## Prerequisites
+
+- Node.js 14 or higher (see `package.json` "engines")
+- MongoDB accessible (local or remote)
+- An Etsy Developer account with API access (API key and OAuth tokens)
+
+## Setup
+
+1. Install dependencies:
+
+    ```bash
+    npm install
+    ```
+
+2. Create a `.env` file in the project root with the required environment variables (example list below).
+
+3. Ensure MongoDB is running or reachable via `MONGODB_URI`.
+
+Required environment variables (commonly used by the app):
+
+- ETSY_API_KEY
+- TOKEN_DATA (JSON string with OAuth tokens)
+- MONGODB_URI (e.g., mongodb://localhost:27017/etsy_inventory)
+- SESSION_SECRET
+- SHOPIFY_ACCESS_TOKEN (optional)
+- SHOPIFY_SHOP_NAME (optional)
+- DEFAULT_VIEW (optional, e.g., "gallery")
+- LOW_STOCK_THRESHOLD (optional, integer)
+- AUTO_SYNC_ENABLED (optional, true/false)
+- AUTO_SYNC_INTERVAL (optional, hours)
+
+If a sample `.env.example` is not present in this repo, create a `.env` with the keys above.
+
+## Project Structure
+
+```plaintext
+├── models/             # Database models (product, order, settings)
+├── routes/             # Express route handlers
+├── utils/              # Helper functions and services
+├── views/              # Handlebars templates and layouts
 └── server.js           # Main application file
 ```
 
 ## Starting the Server
 
-1. Kill any existing server instances:
+On macOS / Linux (zsh, bash):
+
+1. Kill any existing node processes listening on the app port (optional):
 
     ```bash
-    taskkill /F /IM node.exe
+    # kill by process name
+    pkill -f node || true
+
+    # or kill only processes on the default port
+    lsof -i :3003 -t | xargs --no-run-if-empty kill || true
     ```
 
-2. Start the server:
+2. Start the server (use `PORT` to override default 3003):
 
     ```bash
-    node server.js
+    npm start
+    # or
+    PORT=4000 npm start
     ```
 
-The server will be available at <http://localhost:3003>
+On Windows (PowerShell):
+
+    Stop-Process -Name node -Force  # caution: kills all node processes
+
+The server default address is http://localhost:3003 unless `PORT` is set in the environment.
+
+Useful npm scripts (defined in `package.json`):
+
+- `npm start` — run the app (node server.js)
+- `npm run check-db` — runs a MongoDB health check script
+- `npm run analyze-indexes` — analyze MongoDB indexes
+- `npm run create-indexes` — create recommended indexes
+- `npm run test-timeouts` — test timeout handling in scripts
 
 ## Features
 
@@ -68,89 +119,13 @@ The server will be available at <http://localhost:3003>
 - Product image carousel in product details view
 - Raw data inspection for advanced users
 
-## Progress Summary
-
-### Recently Completed
-
-- [x] Moved to modular code structure with separate route files
-- [x] Cleaned up debugging endpoints and consolidated helper functions
-- [x] Fixed order status syncing with Etsy
-- [x] Added proper handling of canceled orders
-- [x] Implemented collapsible sections in orders view
-- [x] Fixed digital/physical item filtering
-- [x] Improved error handling and logging
-- [x] Added missing Handlebars helpers ('length', 'lt')
-- [x] Fixed image display in product details carousel
-- [x] Enhanced JSON data display with improved depth handling
-- [x] Optimized data processing for large objects
-
-### Short-term Tasks
-
-- [ ] Implement Shopify order sync
-- [ ] Add bulk order status sync functionality
-- [ ] Add order notes/comments feature
-- [ ] Implement order search functionality
-- [ ] Add order export functionality (CSV/Excel)
-- [ ] Add additional Handlebars helpers for template flexibility
-
-### Long-term Goals
-
-- [ ] Add support for additional marketplaces (Amazon, eBay)
-- [ ] Implement real-time order notifications
-- [ ] Add inventory forecasting
-- [ ] Create mobile-optimized interface
-- [ ] Add barcode scanning support
-- [ ] Implement automated inventory reconciliation
-- [ ] Add support for multiple Etsy shops
-- [ ] Create detailed reporting dashboard
-- [ ] Add support for printing shipping labels
-- [ ] Implement inventory location tracking
-
-## Recent Refactoring Improvements
-
-This application has recently been refactored to improve code organization and maintainability:
-
-### Completed Refactoring
-
-- [x] Centralized authentication token management in a dedicated service
-- [x] Improved error handling with consistent logging
-- [x] Reorganized server.js for better code organization
-- [x] Created a unified database connection module
-- [x] Added JSDoc documentation throughout the codebase
-- [x] Separated Handlebars helpers into their own module
-- [x] Improved route organization with proper separation of concerns
-
-### Next Steps for Refactoring
-
-- [ ] Add unit tests for the auth service module
-- [ ] Implement a simple caching layer to prevent unnecessary database queries
-- [ ] Add token status information to the dashboard UI (valid until time)
-- [ ] Create a "force refresh" option in settings for manual token refreshing
-- [ ] Convert to TypeScript for better type safety
-- [ ] Implement environment-specific configuration files
-- [ ] Create a centralized error handling middleware
-- [ ] Add automated tests for critical functionality
-- [ ] Further refactor route handlers for consistency
-
-## Handlebars Helpers
-
-The application uses the following Handlebars helpers:
-
-- `json`: Safely converts objects to JSON strings with formatting
-- `formatDate`: Formats date objects to local date strings
-- `multiply`: Multiplies two numbers
-- `divide`: Divides first number by second number
-- `eq`: Checks if two values are equal
-- `lt`: Checks if first value is less than second value
-- `length`: Returns the length of an array
-
 ## Development Notes
 
 - Use semantic commits for version control
-- Run tests before submitting pull requests
+- Run the MongoDB health check (`npm run check-db`) when troubleshooting DB issues
 - Keep dependencies up to date
 - Follow the established code organization pattern when adding new features
-- After making template changes, always restart the server
+- After making template or helper changes, restart the server
 
 ## Troubleshooting
 
@@ -158,66 +133,64 @@ The application uses the following Handlebars helpers:
 
 #### Missing Helpers
 
-If you encounter a "Missing helper" error, you may need to add a new Handlebars helper in server.js.
+If you encounter a "Missing helper" error, check `utils/handlebars-helpers.js` and ensure the helper is exported and registered in `server.js`.
 
 #### Image Display Problems
 
-If images aren't displaying properly, check the following:
+If images aren't displaying properly:
 
 1. Ensure image URLs are correctly formatted in the database
-2. Verify the correct property is being used in the template (e.g., `url` instead of `url_fullxfull`)
-3. Check browser console for 404 errors on image requests
+2. Verify the correct property is being used in the template (e.g., `url` vs `url_fullxfull`)
+3. Check the browser console for 404 errors on image requests
 
 #### Data Depth Issues
 
-If you see ``[Max Depth Reached]`` in your data, the JSON helper may be truncating nested objects.
-Adjust the maxDepth parameter in the JSON helper or add special handling for specific fields.
+If you see `[Max Depth Reached]` in JSON views, the JSON helper may be truncating nested objects. Adjust the maxDepth parameter in the helper.
 
 ## MongoDB Management
 
-### Starting MongoDB
+### macOS
 
-1. Open Command Prompt as Administrator
-2. Start the MongoDB service:
+If you installed MongoDB via Homebrew:
 
-    ```bash
-    net start MongoDB
-    ```
+```bash
+brew services start mongodb-community
+brew services stop mongodb-community
+brew services list
+```
 
-### Stopping MongoDB
+Or run `mongod` directly with your config file:
 
-1. Open Command Prompt as Administrator
-2. Stop the MongoDB service:
+```bash
+mongod --config /usr/local/etc/mongod.conf
+```
 
-    ```bash
-    net stop MongoDB
-    ```
+### Linux (systemd)
 
+```bash
+sudo systemctl start mongod
+sudo systemctl stop mongod
+sudo systemctl status mongod
+```
+
+### Windows (PowerShell)
+
+```powershell
+# Start/stop a MongoDB service if installed as a service
+net start MongoDB
+net stop MongoDB
+Get-Service -Name MongoDB -ErrorAction SilentlyContinue
+```
+
+If MongoDB isn't starting, check the configured data directory and log files (often configured in `mongod.conf`).
+
+## Where to look next
+
+- `server.js` — application entrypoint and route mounting
+- `routes/` — API and page routes
+- `utils/` — API helpers (Etsy/Shopify), auth service, scheduler
+
+---
+
+If you want, I can also add a small `.env.example` file containing the keys above and a short `CONTRIBUTING.md` with development steps.
 ### Checking MongoDB Status
-
-1. Open Command Prompt as Administrator
-2. List running services:
-
-    ```bash
-    Get-Service -Name MongoDB -ErrorAction SilentlyContinue
-    ```
-
-### Further Troubleshooting
-
-If MongoDB won't start:
-
-1. Check if the service is installed:
-
-    ```bash
-    Get-Service -Name MongoDB -ErrorAction SilentlyContinue
-    ```
-
-2. If not found, install MongoDB as a service:
-
-    ```bash
-    "C:\Program Files\MongoDB\Server\{version}\bin\mongod.exe" --config "C:\Program Files\MongoDB\Server\{version}\bin\mongod.cfg" --install
-    ```
-
-    Replace {version} with your MongoDB version (e.g., 6.0)
-
-**Note:** These commands require Administrator privileges. Right-click Command Prompt and select "Run as Administrator".
