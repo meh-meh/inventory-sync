@@ -246,6 +246,20 @@ module.exports = function () {
 		},
 
 		/**
+		 * Greater than comparison
+		 */
+		gt: function (a, b) {
+			return Number(a) > Number(b);
+		},
+
+		/**
+		 * Less than comparison
+		 */
+		lt: function (a, b) {
+			return Number(a) < Number(b);
+		},
+
+		/**
 		 * Multiply two numbers
 		 * @param {Number} a - The first number
 		 * @param {Number} b - The second number

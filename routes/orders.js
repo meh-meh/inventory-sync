@@ -9,11 +9,250 @@
 const express = require('express');
 const router = express.Router();
 const Order = require('../models/order');
+const Product = require('../models/product');
 const getShopId = require('../utils/etsy-helpers').getShopId;
 const fetch = require('node-fetch');
 const { etsyRequest } = require('../utils/etsy-request-pool');
 
 // Orders Management Routes
+
+/**
+ * Order views endpoint - supports multiple view options via ?view=<option>
+ * Current options:
+ *  - sku-needs: Aggregates SKUs from all open (unshipped) orders and shows quantities needed and Shopify availability
+ */
+router.get('/view', async (req, res) => {
+	try {
+		const view = req.query.view || 'default';
+
+		if (view === 'sku-needs' || view === 'sku' || view === 'sku-day') {
+			// Group needed quantities by order date (physical items only)
+			const orders = await Order.find({
+				status: 'unshipped',
+				items: { $exists: true, $ne: [] },
+				'items.is_digital': false,
+			}).lean({ virtuals: true });
+
+			// dateStr (YYYY-MM-DD) -> { sku -> needed }
+			const dateBuckets = {};
+			for (const o of orders) {
+				if (!o.items) continue;
+				const dt = o.order_date
+					? new Date(o.order_date)
+					: o.shipped_date
+						? new Date(o.shipped_date)
+						: new Date();
+				// normalize to YYYY-MM-DD
+				const dateStr = dt.toISOString().slice(0, 10);
+
+				if (!dateBuckets[dateStr]) dateBuckets[dateStr] = {};
+				const bucket = dateBuckets[dateStr];
+
+				for (const it of o.items) {
+					if (it.is_digital) continue;
+					const sku = it.sku || 'NO_SKU';
+					if (!bucket[sku]) bucket[sku] = { needed: 0 };
+					bucket[sku].needed += Number(it.quantity) || 0;
+				}
+			}
+
+			// Flatten all SKUs to fetch product info
+			const allSkus = new Set();
+			for (const d of Object.keys(dateBuckets)) {
+				for (const s of Object.keys(dateBuckets[d])) allSkus.add(s);
+			}
+
+			const productInfoMap = {};
+			try {
+				const skuList = Array.from(allSkus);
+				if (skuList.length > 0) {
+					const products = await Product.find({ sku: { $in: skuList } }).lean();
+					for (const p of products) {
+						const sku = p.sku;
+						const title = (p.shopify_data && p.shopify_data.title) || p.name || '';
+						let image = null;
+						if (
+							p.shopify_data &&
+							Array.isArray(p.shopify_data.images) &&
+							p.shopify_data.images.length > 0
+						) {
+							image = p.shopify_data.images[0].url;
+						} else if (p.raw_shopify_data && p.raw_shopify_data.product) {
+							const rp = p.raw_shopify_data.product;
+							try {
+								if (
+									rp.images &&
+									rp.images.edges &&
+									rp.images.edges.length > 0 &&
+									rp.images.edges[0].node &&
+									rp.images.edges[0].node.originalSrc
+								) {
+									image = rp.images.edges[0].node.originalSrc;
+								}
+							} catch {
+								image = null;
+							}
+						}
+
+						let available = null;
+						if (
+							p.shopify_data &&
+							typeof p.shopify_data.inventory_quantity === 'number'
+						) {
+							available = p.shopify_data.inventory_quantity;
+						} else if (typeof p.quantity_available === 'number') {
+							available = p.quantity_available;
+						} else if (typeof p.quantity_on_hand === 'number') {
+							available = p.quantity_on_hand - (p.quantity_committed || 0);
+						}
+
+						productInfoMap[sku] = { title, image, available };
+					}
+				}
+			} catch (dbErr) {
+				console.error('Error fetching product data from DB for SKU view:', dbErr);
+			}
+
+			// Build per-date rows and support two pagination modes:
+			// - sku-needs (default): pagination over flattened SKU list
+			// - sku-day: pagination over date groups (no day is split across pages)
+			const sortParam = String(req.query.sort || 'needed_desc');
+			const sortFns = {
+				needed_desc: (a, b) => b.needed - a.needed,
+				needed_asc: (a, b) => a.needed - b.needed,
+				available_desc: (a, b) => (b.available || 0) - (a.available || 0),
+				available_asc: (a, b) => (a.available || 0) - (b.available || 0),
+				sku_asc: (a, b) => String(a.sku).localeCompare(String(b.sku)),
+				sku_desc: (a, b) => String(b.sku).localeCompare(String(a.sku)),
+			};
+
+			// sort dates ascending so oldest date at top by default
+			const dateKeys = Object.keys(dateBuckets).sort((a, b) => new Date(a) - new Date(b));
+
+			const flatRows = [];
+			for (const dateStr of dateKeys) {
+				const bucket = dateBuckets[dateStr];
+				const inner = [];
+				for (const sku of Object.keys(bucket)) {
+					inner.push({
+						sku,
+						title: productInfoMap[sku]?.title || '',
+						image: productInfoMap[sku]?.image || null,
+						needed: bucket[sku].needed,
+						available: productInfoMap[sku]?.available ?? null,
+						date: dateStr,
+					});
+				}
+
+				inner.sort(sortFns[sortParam] || sortFns.needed_desc);
+
+				for (const r of inner) flatRows.push(r);
+			}
+
+			// If user requested the 'sku-day' view, paginate by date groups (do not split a day)
+			if (view === 'sku-day') {
+				// total number of date groups
+				const totalDates = dateKeys.length;
+				const page = Math.max(1, parseInt(req.query.page || '1', 10) || 1);
+				// Treat pageSize as number of dates per page; keep limits reasonable
+				const pageSize = Math.max(
+					1,
+					Math.min(500, parseInt(req.query.pageSize || '10', 10) || 10)
+				);
+				const totalPages = Math.max(1, Math.ceil(totalDates / pageSize));
+				const currentPage = Math.min(page, totalPages);
+				const startIndex = (currentPage - 1) * pageSize;
+				const pagedDateKeys = dateKeys.slice(startIndex, startIndex + pageSize);
+
+				const groupedDays = [];
+				for (const dateStr of pagedDateKeys) {
+					const bucket = dateBuckets[dateStr] || {};
+					const inner = [];
+					for (const sku of Object.keys(bucket)) {
+						inner.push({
+							sku,
+							title: productInfoMap[sku]?.title || '',
+							image: productInfoMap[sku]?.image || null,
+							needed: bucket[sku].needed,
+							available: productInfoMap[sku]?.available ?? null,
+							date: dateStr,
+						});
+					}
+					inner.sort(sortFns[sortParam] || sortFns.needed_desc);
+					const totalNeeded = inner.reduce((s, it) => s + (it.needed || 0), 0);
+					const label = new Date(dateStr + 'T00:00:00Z').toDateString();
+					groupedDays.push({ date: dateStr, label, totalNeeded, rows: inner });
+				}
+
+				return res.render('orders-sku-view', {
+					groupedDays,
+					activePage: 'orders',
+					activeMarketplace: req.query.marketplace || 'all',
+					view: 'sku-day',
+					pagination: {
+						page: currentPage,
+						pageSize,
+						total: totalDates,
+						totalPages,
+						sort: sortParam,
+						byDate: true,
+					},
+				});
+			}
+
+			// sku-needs: aggregate across all dates (sum needed per SKU) and paginate item-level
+			const skuMap = {};
+			for (const r of flatRows) {
+				if (!skuMap[r.sku])
+					skuMap[r.sku] = {
+						sku: r.sku,
+						title: r.title,
+						image: r.image,
+						needed: 0,
+						available: r.available ?? null,
+					};
+				skuMap[r.sku].needed += r.needed || 0;
+				if (r.available != null) skuMap[r.sku].available = r.available;
+			}
+
+			let rowsArr = Object.values(skuMap);
+			rowsArr.sort(sortFns[sortParam] || sortFns.needed_desc);
+
+			const page = Math.max(1, parseInt(req.query.page || '1', 10) || 1);
+			const pageSize = Math.max(
+				1,
+				Math.min(500, parseInt(req.query.pageSize || '50', 10) || 50)
+			);
+			const total = rowsArr.length;
+			const totalPages = Math.max(1, Math.ceil(total / pageSize));
+			const currentPage = Math.min(page, totalPages);
+			const startIndex = (currentPage - 1) * pageSize;
+			const pagedRows = rowsArr.slice(startIndex, startIndex + pageSize);
+
+			return res.render('orders-sku-view', {
+				rows: pagedRows,
+				activePage: 'orders',
+				activeMarketplace: req.query.marketplace || 'all',
+				view: 'sku-needs',
+				pagination: {
+					page: currentPage,
+					pageSize,
+					total,
+					totalPages,
+					sort: sortParam,
+				},
+			});
+		}
+
+		// Unknown view - fallback to orders list
+		return res.redirect('/orders');
+	} catch (error) {
+		console.error('Error rendering orders view:', error);
+		req.flash('error', 'Error loading orders view');
+		return res.redirect('/orders');
+	}
+});
+
 /**
  * Display order details for a specific order
  * Searches by order_id, receipt_id, or shopify_order_number
