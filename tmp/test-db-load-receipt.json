@@ -1,0 +1,6 @@
+{
+  "loadedAt": "2025-09-01T18:42:35.461Z",
+  "mongo": "mongodb://127.0.0.1:27017/etsy_inventory_test",
+  "products": 20,
+  "orders": 20
+}

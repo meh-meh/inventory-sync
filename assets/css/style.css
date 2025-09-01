@@ -1,0 +1,9 @@
+/* Minimal styles so pages load without 404/mime errors */
+body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+.container-fluid { padding: 1rem; }
+.gallery-sticky-header { background: #fff; }
+
+/* Small helpers used by templates */
+.stock-warning { color: #ffc107; }
+.stock-danger { color: #dc3545; }
+.stock-good { color: #198754; }

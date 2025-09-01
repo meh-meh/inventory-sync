@@ -3,6 +3,7 @@ const router = express.Router();
 const Product = require('../models/product');
 const etsyHelpers = require('../utils/etsy-helpers');
 const { logger } = require('../utils/logger');
+const { getProductThumbnail, buildShopifyUrl } = require('../utils/product-helpers');
 
 /**
  * Get the main inventory gallery view
@@ -116,31 +117,12 @@ router.get('/api/data', async (req, res) => {
 			.limit(limit);
 
 		// Helper to pick a thumbnail: prefer Etsy image, then Shopify raw originalSrc, then online_store_url
-		function pickThumbnail(p) {
-			if (p.etsy_data && Array.isArray(p.etsy_data.images) && p.etsy_data.images.length > 0) {
-				return p.etsy_data.images[0].url;
-			}
-			const rawProd =
-				p.raw_shopify_data && p.raw_shopify_data.product
-					? p.raw_shopify_data.product
-					: null;
-			if (
-				rawProd &&
-				rawProd.images &&
-				Array.isArray(rawProd.images.edges) &&
-				rawProd.images.edges.length > 0
-			) {
-				const first = rawProd.images.edges[0];
-				return (first && first.node && (first.node.originalSrc || first.node.url)) || null;
-			}
-			if (rawProd && rawProd.online_store_url) return rawProd.online_store_url;
-			return null;
-		}
-
-		// Calculate available quantity and thumbnail for each product
+		// Calculate available quantity and derive thumbnail/shopify_url for each product using helpers
 		const productsWithAvailability = products.map(p => {
 			p.quantity_available = (p.quantity_on_hand || 0) - (p.quantity_committed || 0);
-			p.thumbnail_url = pickThumbnail(p);
+			p.thumbnail_url = getProductThumbnail(p);
+			// Provide a shopify admin/storefront URL when possible (pass env/settings resolution at product-details)
+			p.shopify_url = buildShopifyUrl(p, process.env.SHOPIFY_SHOP_NAME || null);
 			return p;
 		});
 
@@ -190,6 +172,13 @@ router.get('/product/:sku', async (req, res) => {
 
 		// Attach only if we have a non-empty string to avoid passing falsy values
 		if (shopifyShopName) productData.shopifyShopName = shopifyShopName;
+
+		// Add shopify_url using helper
+		try {
+			productData.shopify_url = buildShopifyUrl(productData, shopifyShopName) || null;
+		} catch {
+			// ignore
+		}
 
 		// Provide a helper boolean to indicate if Shopify linkage looks valid
 		const sd = product.shopify_data || {};

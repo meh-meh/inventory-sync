@@ -295,6 +295,8 @@ router.get('/:id', async (req, res) => {
 			order,
 			activeMarketplace: req.query.marketplace || 'all',
 			activePage: 'orders', // Add activePage
+			// Provide shopify shop name to templates instead of accessing process.env from views
+			shopifyShopName: process.env.SHOPIFY_SHOP_NAME || null,
 		});
 	} catch (error) {
 		console.error('Error fetching order details:', error);

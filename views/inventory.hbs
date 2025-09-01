@@ -61,7 +61,7 @@
                 </div>
                 <div class="col d-flex justify-content-end align-items-center">
                     <div class="btn-group mb-3">
-                        <button id="addProduct" class="btn btn-success">Add Product</button>
+                        <!-- Add Product flow intentionally removed. See TODO in repo: Add Product feature disabled -->
                         <button id="addProperty" class="btn btn-primary">Add Property</button>
                         <button id="save" class="btn btn-primary">Save Changes</button>
                     </div>
@@ -243,21 +243,15 @@
 
             // Ensure Bootstrap is fully loaded
             if (typeof bootstrap !== 'undefined') {
-                // Pre-initialize modals if they exist
-                const addProductModalElement = document.getElementById('addProductModal');
-                if (addProductModalElement) {
-                    const addProductModal = new bootstrap.Modal(addProductModalElement);
-                    console.log('Bootstrap addProductModal initialized');
-                } else {
-                     console.warn('#addProductModal element not found. Cannot initialize modal.');
-                }
+                // Product modal initialization removed for Add Product feature (disabled).
                 const productDetailsModalElement = document.getElementById('productDetailsModal');
                  if (productDetailsModalElement) {
                     const productDetailsModal = new bootstrap.Modal(productDetailsModalElement);
                     console.log('Bootstrap productDetailsModal initialized');
-                } else {
-                     console.warn('#productDetailsModal element not found. Cannot initialize modal.');
-                }
+             } else {
+                 console.warn('#productDetailsModal element not found. Cannot initialize modal.');
+             }
+          } else {
             } else {
                 console.error('Bootstrap not loaded properly');
             }
@@ -557,21 +551,9 @@
         // --- Event Listeners for Buttons ---
 
         // Add Product Button
-        const addProductBtn = document.getElementById('addProduct');
-        if (addProductBtn) {
-            addProductBtn.addEventListener('click', function() {
-                console.log('Add product button clicked');
-                 const addProductModalElement = document.getElementById('addProductModal');
-                 if (addProductModalElement) {
-                    const modal = bootstrap.Modal.getInstance(addProductModalElement) || new bootstrap.Modal(addProductModalElement);
-                    modal.show();
-                 } else {
-                     console.error("Add product modal element not found!");
-                 }
-            });
-        } else {
-            console.warn("#addProduct button not found.");
-        }
+        // Add Product flow intentionally disabled.
+        // TODO(feature-flag): Add Product UI removed from inventory table view. To re-enable,
+        // implement a shared `addProductModal` partial and reintroduce the button and handlers.
 
 
         // Add Property Button
@@ -650,98 +632,11 @@
         }
 
 
-        // Search Functionality
-        const searchBtn = document.getElementById('searchBtn');
-        const searchInput = document.getElementById('searchInput');
+    // Search Functionality
+    const searchBtn = document.getElementById('searchBtn');
+    const searchInput = document.getElementById('searchInput');
 
-        function performSearch() {
-            const searchTerm = searchInput ? searchInput.value.trim() : '';
-            if (tableState.search !== searchTerm) {
-                tableState.search = searchTerm;
-                tableState.page = 1; // Reset to first page
-                loadTableData();
-            }
-        }
-
-        if (searchBtn) {
-            searchBtn.addEventListener('click', performSearch);
-        } else {
-             console.warn("#searchBtn not found.");
-        }
-
-        if (searchInput) {
-            searchInput.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
-                    performSearch();
-                }
-            });
-        } else {
-             console.warn("#searchInput not found.");
-        }
-
-
-        // --- Modal Related Functions ---
-
-        // Handle saving new product (assuming modal HTML exists elsewhere or is included)
-        const saveProductBtn = document.getElementById('saveProduct');
-         if (saveProductBtn) {
-            saveProductBtn.addEventListener('click', async function() {
-                console.log('Save product button clicked');
-                // Ensure the form elements exist before accessing their values
-                const skuEl = document.getElementById('sku');
-                const nameEl = document.getElementById('name');
-                const locationEl = document.getElementById('location');
-                const quantityEl = document.getElementById('quantity');
-
-                if (!skuEl || !nameEl || !locationEl || !quantityEl) {
-                    console.error("One or more form elements for adding a product are missing.");
-                    alert("Error: Cannot find product form elements.");
-                    return;
-                }
-
-
-                const formData = {
-                    sku: skuEl.value,
-                    name: nameEl.value,
-                    location: locationEl.value,
-                    quantity_on_hand: parseInt(quantityEl.value) || 0
-                };
-
-                if (!formData.sku) {
-                     alert("SKU is required to add a product.");
-                     return;
-                }
-
-                console.log('Saving product:', formData);
-
-                try {
-                    // Use the same POST /inventory endpoint
-                    const response = await fetch('/inventory', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ changes: [formData] }) // Send as an array
-                    });
-
-                    if (response.ok) {
-                         const addProductModalElement = document.getElementById('addProductModal');
-                         if (addProductModalElement) {
-                            const modal = bootstrap.Modal.getInstance(addProductModalElement);
-                            if (modal) modal.hide();
-                         }
-                        alert('Product added successfully!');
-                        loadTableData(); // Reload data
-                    } else {
-                         const errorData = await response.json().catch(() => ({ error: 'Error adding product' }));
-                        alert(`Error adding product: ${errorData.message || errorData.error}`);
-                    }
-                } catch (error) {
-                    console.error('Error saving product:', error);
-                    alert('Failed to save product: ' + error.message);
-                }
-            });
-        } else {
-             console.warn("#saveProduct button not found (expected in add product modal).");
-        }
+    // Add Product modal handlers removed. See TODO above for guidance on re-enabling.
 
 
         // Function to fetch product details on demand

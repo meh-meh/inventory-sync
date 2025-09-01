@@ -158,9 +158,13 @@
                             Sync Status from Shopify
                         </button>
 
-                        <a href="https://{{process.env.SHOPIFY_SHOP_NAME}}/admin/orders/{{order.order_id}}" target="_blank" class="btn btn-outline-success w-100">
+                        {{#if shopifyShopName}}
+                        <a href="https://{{shopifyShopName}}/admin/orders/{{order.order_id}}" target="_blank" class="btn btn-outline-success w-100">
                             View on Shopify
                         </a>
+                        {{else}}
+                        <a href="#" class="btn btn-outline-secondary w-100 disabled" title="Shopify shop not configured">Shopify shop not configured</a>
+                        {{/if}}
                         {{/if}}
                     </div>
                 </div>

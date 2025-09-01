@@ -4,12 +4,18 @@
 	"description": "A simple Node app that makes requests to Etsy’s Open API.",
 	"main": "server.js",
 	"scripts": {
+		"postinstall": "node -e \"try{require.resolve('playwright'); require('child_process').execSync('npx playwright install --with-deps',{stdio:'inherit'});}catch(e){}\"",
 		"start": "node server.js",
 		"backfill-stale-orders": "node scripts/backfill-stale-orders.js",
 		"check-db": "node test-scripts/mongo-health-check.js",
 		"test-timeouts": "node test-scripts/test-timeouts.js",
 		"analyze-indexes": "node test-scripts/analyze-indexes.js",
-		"create-indexes": "node test-scripts/create-indexes.js"
+		"create-indexes": "node test-scripts/create-indexes.js",
+		"generate:test-data": "node scripts/generate-test-data.js",
+		"seed:test-db": "node scripts/load-test-db.js",
+		"smoke:playwright": "node test-scripts/dom-smoke.js --url $BASE_URL",
+		"smoke:fallback": "node test-scripts/dom-smoke-fallback.js --url $BASE_URL",
+		"smoke:dom": "npm run smoke:playwright || npm run smoke:fallback"
 	},
 	"dependencies": {
 		"@dotenvx/dotenvx": "^1.40.0",
@@ -42,6 +48,9 @@
 		"@shopify/api-codegen-preset": "^1.1.7",
 		"eslint": "^9.26.0",
 		"globals": "^16.0.0",
+		"playwright": "^1.55.0",
+		"jsdom": "^22.1.0",
+		"wait-on": "^7.0.1",
 		"prettier": "3.5.3"
 	}
 }

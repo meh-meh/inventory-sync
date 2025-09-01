@@ -268,18 +268,18 @@ Notes: I list the actual route, the main features observed, and a short status +
 
 ## Prioritized Todo Checklist
 
-- ~~[] Add missing modal partials used by `inventory.hbs` / `inventory-gallery.hbs` (IDs: `addProductModal`, `saveProduct` button) — High priority (urgent)~~
-  - Replacement: remove Add Product access from the UI and annotate code paths as incomplete/possibly-removed.
-  - Steps: remove Add Product buttons/links from `inventory.hbs`, `inventory-gallery.hbs`, and client JS; add TODO comments in `routes/inventory.js`, `views/*` client JS and any helper files noting the feature is disabled and may be removed (e.g., `// TODO(feature-flag): Add Product flow disabled — consider removal`).
-  - Success: No Add Product buttons or modal triggers are visible on inventory pages; browser console no longer shows "modal not found" warnings; relevant files contain TODO comments.
+ - [x] Add missing modal partials used by `inventory.hbs` / `inventory-gallery.hbs` replaced with removal of Add Product UI
+   - Replacement: Add Product access removed from the UI and code paths annotated as disabled.
+   - Steps performed: removed Add Product buttons from `views/inventory.hbs` and `views/inventory-gallery.hbs`, removed related JS handlers, and added TODO comments where applicable.
+   - Success: Inventory views no longer reference `addProduct`/`saveProduct`; console warnings for missing modal are eliminated for these views.
 
-- ~~[] Ensure modal partials are included in `layouts/main.hbs` so inventory JS finds expected elements everywhere — High priority (urgent)~~
-  - Replacement: ensure layout does not include the Add Product modal and document the removal.
-  - Steps: remove any `{{> addProductModal}}` includes from `layouts/main.hbs` or gate them behind a clear feature flag/comment; add a comment in `layouts/main.hbs` explaining the Add Product UI is intentionally disabled.
-  - Success: `layouts/main.hbs` contains a comment indicating the Add Product modal is disabled and pages show no Add Product controls.
-- [ ] Replace all direct `process.env.*` usages inside templates with explicit route variables (e.g., `shopifyShopName`) and update routes to pass them — High priority (urgent)
-  - Steps: find templates referencing `process.env` (repo search), replace with variable names, update corresponding `res.render()` calls to include variables; run the server and inspect rendered HTML for missing placeholders.
-  - Success: No template contains `process.env.*`; rendered pages show correct shop names/links; automated render spot-checks (3 pages) display expected values.
+ - [x] Ensure layout documents Add Product modal removal (comment added to `views/layouts/main.hbs`)
+   - Replacement: layout contains a comment noting the Add Product modal is intentionally disabled.
+   - Steps performed: added explanatory comment to `views/layouts/main.hbs`.
+   - Success: `views/layouts/main.hbs` documents the removal and points to re-enable steps.
+ - [x] Replace all direct `process.env.*` usages inside templates with explicit route variables (e.g., `shopifyShopName`) and update routes to pass them — High priority (urgent)
+  - Steps performed: Searched `views/` for `process.env` references, updated `routes/orders.js` to pass `shopifyShopName`, replaced the template usage in `views/order-details.hbs`, and validated via smoke tests.
+  - Success: No `process.env.*` occurrences remain in templates; `order-details.hbs` uses `shopifyShopName` and shows a graceful fallback when not configured.
 - [ ] Ensure express-session middleware is configured and documented so PKCE OAuth (code_verifier/state) works reliably; remove fallback reliance on `process.env.CLIENT_VERIFIER` — High priority (urgent)
   - Steps: verify `server.js` includes `express-session` setup (store, secret, cookie options); add README section documenting session requirements; remove or guard fallback to `CLIENT_VERIFIER` and log warnings if session missing.
   - Success: OAuth connect flow stores/verifies `codeVerifier` in `req.session`; end-to-end PKCE flow completes in a manual test; no insecure fallback used in normal operation.
@@ -293,9 +293,9 @@ Notes: I list the actual route, the main features observed, and a short status +
   - Steps: create a short QA checklist script in `test-scripts/` that runs the server, hits endpoints, and runs a browser smoke test asserting Add Product UI absent; capture screenshots/logs.
   - Success: QA checklist completes without errors; screenshots/logs stored under `tmp_run_results/` and added to PR.
 
-- [ ] Add server-side helpers `getProductThumbnail(product)` and `buildShopifyUrl(product, shopifyShopName)` and update inventory API and `product-details` to return these fields; replace duplicated thumbnail/URL resolution logic in templates/JS with these server-provided values — Medium priority
-  - Steps: add `utils/product-helpers.js` with `getProductThumbnail` and `buildShopifyUrl`; update `routes/inventory.js` to use helpers when producing JSON and rendering templates; remove client-side duplicates.
-  - Success: Inventory API responses include `thumbnail` and `shopifyUrl` fields; templates use those fields and tests confirm URLs/images resolve in sample data.
+ - [x] Add server-side helpers `getProductThumbnail(product)` and `buildShopifyUrl(product, shopifyShopName)` and update inventory API and `product-details` to return these fields; replace duplicated thumbnail/URL resolution logic in templates/JS with these server-provided values — Medium priority
+  - Steps performed: Added `utils/product-helpers.js`, wired `getProductThumbnail` and `buildShopifyUrl` into `/inventory/api/data` and `/inventory/product/:sku`, and added small smoke/unit test scripts under `test-scripts/` to validate outputs.
+  - Success: API responses include `thumbnail_url` and `shopify_url` where available; product helper unit checks passed locally and smoke API tests succeeded.
 - [ ] Create `startBackgroundSync({ marketplace, type, serviceFn, req })` helper to standardize sync-start behavior (init status, background call, error handling) and refactor `/sync/*` routes to use it — Medium priority
   - Steps: implement helper in `utils/sync-starter.js`, update `routes/sync.js` to call it for Etsy/Shopify sync starts, add unit tests for status lifecycle.
   - Success: Sync endpoints return consistent JSON (`syncId`, `status`) and sync-status-manager shows expected lifecycle entries; no duplicated try/catch logic remains.

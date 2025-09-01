@@ -61,6 +61,8 @@ app.use(express.urlencoded({ extended: true })); // Add this line to parse form 
 
 // Serve static files from assets directory
 app.use('/assets', express.static(path.join(process.cwd(), 'assets')));
+// Serve CSS from assets/css at /css to match template links
+app.use('/css', express.static(path.join(process.cwd(), 'assets', 'css')));
 
 // Session middleware
 app.use(
