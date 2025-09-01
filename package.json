@@ -15,7 +15,9 @@
 		"seed:test-db": "node scripts/load-test-db.js",
 		"smoke:playwright": "node test-scripts/dom-smoke.js --url $BASE_URL",
 		"smoke:fallback": "node test-scripts/dom-smoke-fallback.js --url $BASE_URL",
-		"smoke:dom": "npm run smoke:playwright || npm run smoke:fallback"
+		"smoke:dom": "npm run smoke:playwright || npm run smoke:fallback",
+		"test": "cross-env NODE_ENV=test jest --runInBand",
+		"start:test": "cross-env NODE_ENV=test MONGODB_URI=mongodb://127.0.0.1:27017/etsy_inventory_test node server.js"
 	},
 	"dependencies": {
 		"@dotenvx/dotenvx": "^1.40.0",
@@ -51,6 +53,16 @@
 		"playwright": "^1.55.0",
 		"jsdom": "^22.1.0",
 		"wait-on": "^7.0.1",
+		"jest": "^29.0.0",
+		"supertest": "^6.3.3",
+		"mongodb-memory-server": "^8.12.1",
+		"cross-env": "^7.0.3",
 		"prettier": "3.5.3"
+	}
+	,
+	"jest": {
+		"testEnvironment": "node",
+		"testTimeout": 20000,
+		"verbose": true
 	}
 }

@@ -268,16 +268,15 @@ Notes: I list the actual route, the main features observed, and a short status +
 
 ## Prioritized Todo Checklist
 
- - [x] Add missing modal partials used by `inventory.hbs` / `inventory-gallery.hbs` replaced with removal of Add Product UI
-   - Replacement: Add Product access removed from the UI and code paths annotated as disabled.
-   - Steps performed: removed Add Product buttons from `views/inventory.hbs` and `views/inventory-gallery.hbs`, removed related JS handlers, and added TODO comments where applicable.
-   - Success: Inventory views no longer reference `addProduct`/`saveProduct`; console warnings for missing modal are eliminated for these views.
-
- - [x] Ensure layout documents Add Product modal removal (comment added to `views/layouts/main.hbs`)
-   - Replacement: layout contains a comment noting the Add Product modal is intentionally disabled.
-   - Steps performed: added explanatory comment to `views/layouts/main.hbs`.
-   - Success: `views/layouts/main.hbs` documents the removal and points to re-enable steps.
- - [x] Replace all direct `process.env.*` usages inside templates with explicit route variables (e.g., `shopifyShopName`) and update routes to pass them — High priority (urgent)
+- [x] Add missing modal partials used by `inventory.hbs` / `inventory-gallery.hbs` replaced with removal of Add Product UI
+  - Replacement: Add Product access removed from the UI and code paths annotated as disabled.
+  - Steps performed: removed Add Product buttons from `views/inventory.hbs` and `views/inventory-gallery.hbs`, removed related JS handlers, and added TODO comments where applicable.
+  - Success: Inventory views no longer reference `addProduct`/`saveProduct`; console warnings for missing modal are eliminated for these views.
+- [x] Ensure layout documents Add Product modal removal (comment added to `views/layouts/main.hbs`)
+  - Replacement: layout contains a comment noting the Add Product modal is intentionally disabled.
+  - Steps performed: added explanatory comment to `views/layouts/main.hbs`.
+  - Success: `views/layouts/main.hbs` documents the removal and points to re-enable steps.
+- [x] Replace all direct `process.env.*` usages inside templates with explicit route variables (e.g., `shopifyShopName`) and update routes to pass them — High priority (urgent)
   - Steps performed: Searched `views/` for `process.env` references, updated `routes/orders.js` to pass `shopifyShopName`, replaced the template usage in `views/order-details.hbs`, and validated via smoke tests.
   - Success: No `process.env.*` occurrences remain in templates; `order-details.hbs` uses `shopifyShopName` and shows a graceful fallback when not configured.
 - [ ] Ensure express-session middleware is configured and documented so PKCE OAuth (code_verifier/state) works reliably; remove fallback reliance on `process.env.CLIENT_VERIFIER` — High priority (urgent)
@@ -293,7 +292,7 @@ Notes: I list the actual route, the main features observed, and a short status +
   - Steps: create a short QA checklist script in `test-scripts/` that runs the server, hits endpoints, and runs a browser smoke test asserting Add Product UI absent; capture screenshots/logs.
   - Success: QA checklist completes without errors; screenshots/logs stored under `tmp_run_results/` and added to PR.
 
- - [x] Add server-side helpers `getProductThumbnail(product)` and `buildShopifyUrl(product, shopifyShopName)` and update inventory API and `product-details` to return these fields; replace duplicated thumbnail/URL resolution logic in templates/JS with these server-provided values — Medium priority
+- [x] Add server-side helpers `getProductThumbnail(product)` and `buildShopifyUrl(product, shopifyShopName)` and update inventory API and `product-details` to return these fields; replace duplicated thumbnail/URL resolution logic in templates/JS with these server-provided values — Medium priority
   - Steps performed: Added `utils/product-helpers.js`, wired `getProductThumbnail` and `buildShopifyUrl` into `/inventory/api/data` and `/inventory/product/:sku`, and added small smoke/unit test scripts under `test-scripts/` to validate outputs.
   - Success: API responses include `thumbnail_url` and `shopify_url` where available; product helper unit checks passed locally and smoke API tests succeeded.
 - [ ] Create `startBackgroundSync({ marketplace, type, serviceFn, req })` helper to standardize sync-start behavior (init status, background call, error handling) and refactor `/sync/*` routes to use it — Medium priority

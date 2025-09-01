@@ -1,302 +1,144 @@
-# Etsy Inventory Manager
 
-A Node.js application for managing Etsy inventory and orders across multiple marketplaces.
+# Etsy Inventory Manager (inventory-sync)
 
-## Prerequisites
+This repository is a Node.js + Express application for managing inventory and orders across Etsy and Shopify marketplaces. It provides synchronization utilities, route handlers, Handlebars views, background scheduling, and a set of local test utilities.
 
-- Node.js 14 or higher
-- MongoDB installed and running locally
-- An Etsy Developer account with API access
+![Smoke tests](https://github.com/meh-meh/inventory-sync/actions/workflows/smoke-tests.yml/badge.svg)
 
-## Setup
+## Quick start
 
-1. Install dependencies:
+Install dependencies:
 
-    ```bash
-    npm install
-    ```
-
-2. Create a `.env` file with your Etsy API credentials (see `.env.example` for required fields)
-3. Make sure MongoDB is running locally on the default port (27017)
-
-## Project Structure
-
-```plaintext
-├── models/             # Database models
-│   ├── order.js        # Order model definition
-│   └── product.js      # Product model definition
-├── routes/             # Route handlers
-│   ├── auth.js         # Authentication routes
-│   ├── inventory.js    # Inventory management routes
-│   ├── orders.js       # Order management routes
-│   ├── settings.js     # Application settings routes
-│   └── sync.js         # Data synchronization routes
-├── utils/              # Helper functions
-│   ├── etsy-helpers.js # Etsy API helper functions
-│   └── logger.js       # Logging utility
-├── views/              # Handlebars templates
-│   ├── layouts/        # Layout templates
-│   └── *.hbs           # View templates
-└── server.js           # Main application file
+```powershell
+npm install
 ```
 
-## Starting the Server
+Start the application (development):
 
-1. Kill any existing server instances:
-
-    ```bash
-    taskkill /F /IM node.exe
-    ```
-
-2. Start the server:
-
-    ```bash
-    node server.js
-    ```
-
-The server will be available at <http://localhost:3003>
-
-## Features
-
-- Sync inventory with Etsy
-- Track order status and shipping
-- Manage inventory levels
-- View order details and history
-- Filter orders by status (unshipped, shipped, canceled)
-- Auto-refresh of Etsy OAuth tokens
-- Support for physical and digital items
-- Product image carousel in product details view
-- Raw data inspection for advanced users
-
-## Progress Summary
-
-### Recently Completed
-
-- [x] Moved to modular code structure with separate route files
-- [x] Cleaned up debugging endpoints and consolidated helper functions
-- [x] Fixed order status syncing with Etsy
-- [x] Added proper handling of canceled orders
-- [x] Implemented collapsible sections in orders view
-- [x] Fixed digital/physical item filtering
-- [x] Improved error handling and logging
-- [x] Added Handlebars helpers: `length`, `lt` (and many others, see "Handlebars Helpers" section)
-- [x] Fixed image display in product details carousel
-- [x] Enhanced JSON data display with improved depth handling (e.g., `safeStringifyPrep`)
-- [x] Optimized data processing for large objects
-- [x] Added a comprehensive set of Handlebars helpers (`json`, `formatDate` (basic), `formatCurrency`, `eq`, `includes`, `toUpperCase`, `toLowerCase`, `truncate`, `add`, `subtract`, `multiply`, `divide`, `selectOption`, `isEmpty`, `pagination`, `getImageUrl`, `debug`)
-
-### Short-term Tasks
-
-- [ ] Implement Shopify order sync
-- [ ] Add bulk order status sync functionality
-- [ ] Add order notes/comments feature
-- [ ] Implement order search functionality
-- [ ] Add order export functionality (CSV/Excel)
-- [ ] Add additional Handlebars helpers for template flexibility (ongoing - current `formatDate` needs enhancement for relative dates)
-
-### Long-term Goals
-
-- [ ] Add support for additional marketplaces (Amazon, eBay)
-- [ ] Implement real-time order notifications
-- [ ] Add inventory forecasting
-- [ ] Create mobile-optimized interface
-- [ ] Add barcode scanning support
-- [ ] Implement automated inventory reconciliation
-- [ ] Add support for multiple Etsy shops
-- [ ] Create detailed reporting dashboard
-- [ ] Add support for printing shipping labels
-- [ ] Implement inventory location tracking
-
-## Recent Refactoring Improvements
-
-This application has recently been refactored to improve code organization and maintainability:
-
-### Completed Refactoring
-
-- [x] Centralized authentication token management in a dedicated service
-- [x] Improved error handling with consistent logging
-- [x] Reorganized server.js for better code organization
-- [x] Created a unified database connection module
-- [x] Added JSDoc documentation throughout the codebase
-- [x] Separated Handlebars helpers into their own module
-- [x] Improved route organization with proper separation of concerns
-
-### Next Steps for Refactoring
-
-- [ ] Add unit tests for the auth service module
-- [ ] Implement a simple caching layer to prevent unnecessary database queries
-- [ ] Add token status information to the dashboard UI (valid until time)
-- [ ] Create a "force refresh" option in settings for manual token refreshing
-- [ ] Convert to TypeScript for better type safety
-- [ ] Implement environment-specific configuration files
-- [ ] Create a centralized error handling middleware
-- [ ] Add automated tests for critical functionality
-- [ ] Further refactor route handlers for consistency
-
-## Handlebars Helpers
-
-The application uses the following Handlebars helpers (located in `utils/handlebars-helpers.js`):
-
-- `json`: Safely converts objects to JSON strings with formatting and circular reference handling.
-- `formatDate`: Formats date objects. Currently uses a standard format string (e.g., 'YYYY-MM-DD HH:mm:ss'). (TODO: Enhance for relative dates like "Today", "Yesterday").
-- `formatCurrency`: Formats a number as currency (defaults to USD).
-- `eq`: Checks if two values are strictly equal.
-- `includes`: Checks if a collection (Array or String) includes a value.
-- `length`: Returns the length of an array or string.
-- `toUpperCase`: Converts a string to uppercase.
-- `toLowerCase`: Converts a string to lowercase.
-- `truncate`: Truncates text to a specified length, appending an ellipsis.
-- `add`: Adds two numbers.
-- `subtract`: Subtracts the second number from the first.
-- `multiply`: Multiplies two numbers.
-- `divide`: Divides the first number by the second, handles division by zero.
-- `selectOption`: Outputs 'selected' if a value matches a selectedValue, for use in HTML select options.
-- `isEmpty`: Checks if an object, array, or string is empty.
-- `pagination`: Generates basic HTML for pagination links.
-- `getImageUrl`: Gets an image URL from a product object, with support for different sizes and placeholder.
-- `debug`: Logs the current Handlebars context and an optional value to the console.
-- `lt`: Checks if first value is less than second value.
-
-## Development Notes
-
-- Use semantic commits for version control
-- Run tests before submitting pull requests
-- Keep dependencies up to date
-- Follow the established code organization pattern when adding new features
-- After making template changes, always restart the server
-
-## Troubleshooting
-
-### Common Issues
-
-#### Missing Helpers
-
-If you encounter a "Missing helper" error, you may need to add a new Handlebars helper in server.js.
-
-#### Image Display Problems
-
-If images aren't displaying properly, check the following:
-
-1. Ensure image URLs are correctly formatted in the database
-2. Verify the correct property is being used in the template (e.g., `url` instead of `url_fullxfull`)
-3. Check browser console for 404 errors on image requests
-
-#### Data Depth Issues
-
-If you see ``[Max Depth Reached]`` in your data, the JSON helper may be truncating nested objects.
-Adjust the maxDepth parameter in the JSON helper or add special handling for specific fields.
-
-## MongoDB Management
-
-### Starting MongoDB
-
-1. Open Command Prompt as Administrator
-2. Start the MongoDB service:
-
-    ```bash
-    net start MongoDB
-    ```
-
-### Stopping MongoDB
-
-1. Open Command Prompt as Administrator
-2. Stop the MongoDB service:
-
-    ```bash
-    net stop MongoDB
-    ```
-
-### Checking MongoDB Status
-
-1. Open Command Prompt as Administrator
-2. List running services:
-
-    ```bash
-    Get-Service -Name MongoDB -ErrorAction SilentlyContinue
-    ```
-
-### Further Troubleshooting
-
-If MongoDB won't start:
-
-1. Check if the service is installed:
-
-    ```bash
-    Get-Service -Name MongoDB -ErrorAction SilentlyContinue
-    ```
-
-2. If not found, install MongoDB as a service:
-
-    ```bash
-    "C:\Program Files\MongoDB\Server\{version}\bin\mongod.exe" --config "C:\Program Files\MongoDB\Server\{version}\bin\mongod.cfg" --install
-    ```
-
-    Replace {version} with your MongoDB version (e.g., 6.0)
-
-**Note:** These commands require Administrator privileges. Right-click Command Prompt and select "Run as Administrator".
-
-### Sample Data Prep
-
-You can try running a query like the one below at a timestamp where you'll gather orders of multiple statuses to collect some test data.
-
-``` graphql
-query GetOrders($numGet: Int!, $cursor: String) {
-  orders(query: "created_at:>=1745798400", first: $numGet, after: $cursor) {
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-    nodes {
-      id
-      name
-      email
-      phone
-      totalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-      displayFinancialStatus
-      displayFulfillmentStatus
-      createdAt
-      processedAt
-      fulfillments(first: 5) {
-        id
-        status
-        trackingInfo(first: 5) {
-          company
-          number
-          url
-        }
-      }
-      customer {
-        id
-        firstName
-        lastName
-        email
-      }
-      lineItems(first: 250) {
-        nodes {
-          id
-          title
-          quantity
-          variant {
-            id
-            sku
-            product {
-              id
-            }
-          }
-          requiresShipping
-        }
-      }
-    }
-  }
-}
-
-{
-  "numGet": 20,
-  "cursor": null
-}
+```powershell
+npm start
 ```
+
+By default the server listens on port 3003. Environment variables are loaded with `@dotenvx/dotenvx` via `server.js`.
+
+Start in test mode (binds to the test MongoDB URI and sets NODE_ENV=test):
+
+```powershell
+npm run start:test
+```
+
+## Useful npm scripts
+
+- `npm start` — runs `node server.js`
+- `npm run start:test` — runs server with `NODE_ENV=test` and a test `MONGODB_URI` (see `package.json`)
+- `npm run seed:test-db` — seeds the deterministic test DB from `data/test-db.json` (`scripts/load-test-db.js`)
+- `npm test` — runs Jest tests (`cross-env NODE_ENV=test jest --runInBand`)
+- `npm run smoke:playwright` / `npm run smoke:fallback` / `npm run smoke:dom` — DOM smoke test helpers (Playwright preferred, jsdom fallback)
+
+Note: Playwright browser binaries are installed on-demand by the `postinstall` script when Playwright is present.
+
+## Tests and test data
+
+- Deterministic test data: `data/test-db.json`
+- The `seed:test-db` script (`scripts/load-test-db.js`) will seed a MongoDB instance and mark documents with `is_test_data: true` for safe cleanup.
+- Tests use Jest, Supertest and mongodb-memory-server to provide deterministic integration tests.
+
+Run the full test suite locally:
+
+```powershell
+npm test
+```
+
+Run smoke tests (Playwright preferred):
+
+```powershell
+npm run smoke:playwright --silent
+
+npm run smoke:dom
+```
+
+## Project structure
+
+Top-level layout (important folders shown):
+
+```text
+├── models/             # Mongoose models (product, order, settings)
+├── routes/             # Express route handlers (auth, inventory, orders, sync, settings, debug)
+├── services/           # Marketplace sync services (etsy-sync-service.js, shopify-sync-service.js)
+├── utils/              # Helper utilities (etsy-helpers, logger, cache, middleware, auth)
+├── scripts/            # CLI scripts for maintenance and data tasks
+├── test-scripts/       # Test helpers and smoke tests
+├── views/              # Handlebars templates and layouts
+└── server.js           # Main express app (view engine, middleware, routers, scheduler)
+```
+
+## Features (current)
+
+- Synchronize inventory with Etsy (implemented)
+- Shopify sync utilities and a Shopify sync service exist (partial/ongoing integration)
+- Track and manage order status (unshipped, shipped, canceled)
+- Background scheduler and optional startup sync (see `utils/scheduler.js`)
+- Automatic token refresh and session-based OAuth flows
+- Handlebars-based admin UI with helpers in `utils/handlebars-helpers.js`
+- Deterministic test seeding and integration tests using mongodb-memory-server
+
+## Progress summary
+
+### Completed highlights
+
+- Express app wired with modular route handlers (`routes/*`) and Handlebars views
+- Background scheduler and startup sync are present and initialized by `server.js`
+- Shopify helper/service scaffolding exists (`services/shopify-sync-service.js`) and several Shopify-related scripts are included
+- Improved error handling and a centralized logger in `utils/logger.js`
+- Handlebars helpers provided in `utils/handlebars-helpers.js`
+
+### Short-term / planned work
+
+- Complete and harden Shopify order sync and fulfillment flows
+- Add bulk order status sync and bulk operations UI
+- Improve search and export features for orders and inventory
+
+### Long-term ideas
+
+- Additional marketplace adapters (Amazon, eBay)
+- Inventory forecasting and analytics
+- Mobile-optimized UI and barcode/mobile scanning support
+
+## Handlebars helpers
+
+Helpers are defined in `utils/handlebars-helpers.js`. Examples include `json`, `formatDate`, `formatCurrency`, conditionals and small math helpers used by the templates.
+
+## Development notes
+
+- Use semantic commit messages and run tests before opening PRs
+- Restart the server after template or helper changes
+- Keep dependencies (Playwright, Jest, MongoDB tools) up to date
+
+## MongoDB (Windows)
+
+Start MongoDB service:
+
+```powershell
+net start MongoDB
+```
+
+Stop MongoDB service:
+
+```powershell
+net stop MongoDB
+```
+
+Check status:
+
+```powershell
+Get-Service -Name MongoDB -ErrorAction SilentlyContinue
+```
+
+## Sample data and utilities
+
+See `test-scripts/` and `scripts/` for sample data loaders, index helpers and maintenance tasks. The deterministic `data/test-db.json` is intended for CI and local testing only.
+
+## Notes
+
+- Do not seed production databases with test data.
+- Keep API credentials and secrets out of source control; use environment variables or a secrets manager.
