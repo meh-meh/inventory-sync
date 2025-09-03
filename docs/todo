@@ -1,0 +1,5 @@
+# TODO
+
+[ ] Add sync indicator to navbar and make sure it works across all pages (e.g. spinning icon followed by green checkmark on completion)
+[ ] Collect all skus in last sync of orders and resync specifically those skus from both Etsy and Shopify
+[ ] Why doesn't inventory quantity sync properly?
