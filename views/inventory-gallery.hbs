@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -97,7 +98,7 @@
                 </div>
                 <div class="col d-flex justify-content-end align-items-center">
                     <div class="btn-group mb-3">
-                        <button id="addProduct" class="btn btn-success">Add Product</button>
+                        <!-- Add Product flow intentionally removed. See TODO in repo: Add Product feature disabled -->
                         <button id="addProperty" class="btn btn-primary">Add Property</button>
                     </div>
                 </div>
@@ -165,14 +166,7 @@
             console.log("DOMContentLoaded event fired"); // <-- ADDED LOG
 
             if (typeof bootstrap !== 'undefined') {
-                // Check if the modal element exists before trying to initialize
-                const addProductModalElement = document.getElementById('addProductModal');
-                if (addProductModalElement) {
-                    const addProductModal = new bootstrap.Modal(addProductModalElement);
-                    console.log('Bootstrap addProductModal initialized');
-                } else {
-                    console.warn('#addProductModal element not found. Cannot initialize modal.');
-                }
+                // addProductModal intentionally not used (Add Product feature disabled).
             } else {
                 console.error('Bootstrap not loaded properly');
             }
@@ -424,33 +418,26 @@
                     tr.style.cursor = 'pointer';
                     tr.setAttribute('data-sku', product.sku);
                     
-                    // Add image cell
+                    // Add image cell: prefer Etsy image, then raw Shopify product images (originalSrc)
                     const imageCell = document.createElement('td');
                     imageCell.className = 'image-cell';
                     const img = document.createElement('img');
                     img.className = 'img-thumbnail';
                     img.width = 50;
                     img.alt = product.name || 'Product image';
-                    
-                    // Handle image source - simplified to just use the url property
-                    if (product.etsy_data && product.etsy_data.images && product.etsy_data.images.length > 0) {
-                        // Just use the main image URL since we don't have thumbnail variants
-                        img.src = product.etsy_data.images[0].url;
-                        
-                        // Add error handler for image loading
-                        img.onerror = function() {
-                            this.onerror = null;
-                            this.style.display = 'none'; // Hide broken images
-                        };
+
+                    // Use server-provided thumbnail_url when available (preferred: Etsy -> Shopify raw -> online_store_url)
+                    if (product.thumbnail_url) {
+                        img.src = product.thumbnail_url;
+                        img.onerror = function() { this.onerror = null; this.style.display = 'none'; };
+                        imageCell.appendChild(img);
                     } else {
-                        // If no image available, show a text indicator instead
                         img.style.display = 'none';
                         const noImg = document.createElement('span');
                         noImg.className = 'badge bg-secondary';
                         noImg.textContent = 'No image';
                         imageCell.appendChild(noImg);
                     }
-                    imageCell.appendChild(img);
                     tr.appendChild(imageCell);
                     
                     // Add SKU cell
@@ -621,72 +608,8 @@
             loadTableData();
         }
         
-        // Handle adding new product
-        document.getElementById('addProduct').addEventListener('click', function() {
-            console.log('Add product button clicked');
-            const modal = new bootstrap.Modal(document.getElementById('addProductModal'));
-            modal.show();
-        });
-
-        // Handle saving new product
-        document.getElementById('saveProduct').addEventListener('click', async function() {
-            console.log('Save product button clicked');
-            const formData = {
-                sku: document.getElementById('sku').value,
-                name: document.getElementById('name').value,
-                location: document.getElementById('location').value,
-                quantity_on_hand: parseInt(document.getElementById('quantity').value) || 0
-            };
-
-            console.log('Saving product:', formData);
-
-            try {
-                const response = await fetch('/inventory', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ changes: [formData] })
-                });
-
-                if (response.ok) {
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('addProductModal'));
-                    modal.hide();
-                    alert('Product added successfully!');
-                    
-                    // Reload data
-                    loadTableData();
-                } else {
-                    alert('Error adding product');
-                }
-            } catch (error) {
-                console.error('Error saving product:', error);
-                alert('Failed to save product');
-            }
-        });
-
-        // Handle adding new property
-        document.getElementById('addProperty').addEventListener('click', async function() {
-            console.log('Add property button clicked');
-            const propertyName = prompt('Enter new property name:');
-            if (propertyName) {
-                try {
-                    const response = await fetch('/inventory/properties', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ propertyName })
-                    });
-                    
-                    if (response.ok) {
-                        alert('Property added successfully!');
-                        location.reload();
-                    } else {
-                        alert('Failed to add property');
-                    }
-                } catch (error) {
-                    console.error('Error adding property:', error);
-                    alert('Error adding property');
-                }
-            }
-        });
+    // Add Product UI removed intentionally.
+    // TODO(feature-flag): Reintroduce Add Product modal and handlers via partial `addProductModal` if needed.
     </script>
 </body>
 </html>

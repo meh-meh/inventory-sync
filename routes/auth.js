@@ -11,7 +11,6 @@ const { logger } = require('../utils/logger');
 
 const tokenUrl = 'https://api.etsy.com/v3/public/oauth/token';
 const clientID = process.env.ETSY_API_KEY;
-const clientVerifier = process.env.CLIENT_VERIFIER;
 const redirectUri = 'http://localhost:3003/oauth/redirect';
 
 /**
@@ -22,6 +21,33 @@ const redirectUri = 'http://localhost:3003/oauth/redirect';
  */
 router.get('/redirect', async (req, res) => {
 	const authCode = req.query.code;
+	const returnedState = req.query.state;
+
+	// Read the PKCE verifier from the user's session if available. This ensures
+	// the verifier corresponds to this specific auth attempt. Fall back to
+	// the environment variable only if session storage isn't available.
+	let clientVerifier = null;
+	if (req && req.session && req.session.codeVerifier) {
+		clientVerifier = req.session.codeVerifier;
+		logger.debug('Using PKCE verifier from session for token exchange');
+	} else if (process.env.CLIENT_VERIFIER) {
+		clientVerifier = process.env.CLIENT_VERIFIER;
+		logger.warn('PKCE verifier taken from process.env.CLIENT_VERIFIER (fallback)');
+	} else {
+		logger.error('No PKCE code_verifier available in session or environment');
+		return res.status(400).send('Missing code_verifier for OAuth PKCE exchange');
+	}
+
+	// Verify state if we stored one in session
+	if (req && req.session && req.session.oauthState) {
+		if (!returnedState || returnedState !== req.session.oauthState) {
+			logger.error('OAuth state mismatch', {
+				returnedState,
+				expected: req.session.oauthState,
+			});
+			return res.status(400).send('Invalid OAuth state');
+		}
+	}
 	const requestOptions = {
 		method: 'POST',
 		body: JSON.stringify({
@@ -44,6 +70,15 @@ router.get('/redirect', async (req, res) => {
 
 			// Use the auth service to save the token
 			await authService.saveNewToken(tokenData);
+
+			// Clear PKCE and state from session after successful auth
+			if (req && req.session) {
+				delete req.session.codeVerifier;
+				delete req.session.oauthState;
+				logger.debug(
+					'Cleared PKCE verifier and oauth state from session after successful auth'
+				);
+			}
 
 			// Redirect to the dashboard
 			res.redirect('/');

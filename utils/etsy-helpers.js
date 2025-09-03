@@ -16,7 +16,7 @@ const { etsyRequest } = require('./etsy-request-pool'); // Import etsyRequest
  * Base URL for Etsy API v3 endpoints
  * @constant {string}
  */
-const API_BASE_URL = 'https://openapi.etsy.com/v3';
+const API_BASE_URL = 'https://api.etsy.com/v3';
 
 /**
  * Maximum number of retry attempts for failed API requests
@@ -227,11 +227,22 @@ async function getShopId() {
 		);
 
 		if (!response.ok) {
+			// Attempt to read response body for better diagnostics (may be JSON or text)
+			let bodyText = '';
+			try {
+				bodyText = await response.text();
+			} catch (readErr) {
+				logger.warn('Failed to read Etsy response body for diagnostics', {
+					readErr: readErr.message,
+				});
+			}
+
 			logger.error('Failed to fetch shop ID', {
 				status: response.status,
 				statusText: response.statusText,
+				bodySnippet: bodyText ? bodyText.substring(0, 1000) : null,
 			});
-			throw new Error('Failed to fetch shop ID');
+			throw new Error(`Failed to fetch shop ID: ${response.status} ${response.statusText}`);
 		}
 
 		const data = await response.json();
@@ -298,3 +309,301 @@ module.exports = {
 	API_BASE_URL,
 	getShippingProfiles,
 };
+
+/**
+ * Build a sanitized inventory payload that includes only fields allowed by the
+ * updateListingInventory endpoint. This prevents sending extra/invalid fields
+ * that the API will reject.
+ *
+ * @param {Object} invData - The inventory object returned from GET
+ * @param {String} sku - SKU string to apply to product/offerings
+ * @returns {Object} sanitized payload
+ */
+function buildSanitizedInventory(invData, sku) {
+	const out = {};
+
+	if (Array.isArray(invData.products)) {
+		out.products = invData.products.map(prod => {
+			const p = {};
+			// product-level sku
+			p.sku = typeof sku === 'string' ? sku : prod.sku || '';
+
+			// property_values: preserve only the allowed subfields
+			if (Array.isArray(prod.property_values)) {
+				p.property_values = prod.property_values
+					.map(pv => ({
+						property_id: Number(pv.property_id),
+						value_ids: Array.isArray(pv.value_ids)
+							? pv.value_ids.map(Number)
+							: undefined,
+						scale_id: pv.scale_id !== undefined ? Number(pv.scale_id) : undefined,
+						property_name: pv.property_name,
+						values: Array.isArray(pv.values) ? pv.values : undefined,
+					}))
+					.map(v => {
+						// remove undefined keys
+						Object.keys(v).forEach(k => v[k] === undefined && delete v[k]);
+						return v;
+					})
+					// filter out invalid entries (property_id and value_ids must be >= 1)
+					.filter(v => {
+						if (!v.property_id || v.property_id < 1) return false;
+						if (v.value_ids && v.value_ids.some(id => !id || id < 1)) return false;
+						return true;
+					});
+			}
+
+			// offerings: only allowed fields
+			if (Array.isArray(prod.offerings)) {
+				p.offerings = prod.offerings
+					.map(off => {
+						const o = {};
+						// price may be an object ({ amount, divisor }) or a number
+						if (off && typeof off.price === 'object' && off.price !== null) {
+							// try to convert to float
+							const amount = Number(off.price.amount);
+							const divisor = Number(off.price.divisor) || 1;
+							if (!Number.isNaN(amount) && !Number.isNaN(divisor) && divisor !== 0) {
+								o.price = amount / divisor;
+							}
+						} else if (
+							off &&
+							(typeof off.price === 'number' || !Number.isNaN(Number(off.price)))
+						) {
+							o.price = Number(off.price);
+						}
+
+						if (off && off.quantity !== undefined) o.quantity = Number(off.quantity);
+						if (off && off.is_enabled !== undefined)
+							o.is_enabled = Boolean(off.is_enabled);
+						// Do not send readiness_state_id when it's 0 or invalid; Etsy requires IDs >= 1
+						if (off && off.readiness_state_id !== undefined) {
+							const rs = Number(off.readiness_state_id);
+							if (!Number.isNaN(rs) && rs > 0) {
+								o.readiness_state_id = rs;
+							}
+						}
+						return o;
+					})
+					// Filter out any empty offerings objects (no allowed fields)
+					.filter(o => Object.keys(o).length > 0);
+			}
+
+			return p;
+		});
+	}
+
+	// top-level property arrays: allow if present and are arrays
+	if (Array.isArray(invData.price_on_property))
+		out.price_on_property = invData.price_on_property
+			.map(Number)
+			.filter(n => n !== 0 && !Number.isNaN(n));
+	if (Array.isArray(invData.quantity_on_property))
+		out.quantity_on_property = invData.quantity_on_property
+			.map(Number)
+			.filter(n => n !== 0 && !Number.isNaN(n));
+	if (Array.isArray(invData.sku_on_property))
+		out.sku_on_property = invData.sku_on_property
+			.map(Number)
+			.filter(n => n !== 0 && !Number.isNaN(n));
+	if (Array.isArray(invData.readiness_state_on_property))
+		out.readiness_state_on_property = invData.readiness_state_on_property
+			.map(Number)
+			.filter(n => n !== 0 && !Number.isNaN(n));
+
+	return out;
+}
+
+/**
+ * Fetch a single Etsy listing by ID
+ * @param {String} listingId
+ * @returns {Promise<Object>} listing data
+ */
+async function getListing(listingId) {
+	try {
+		const accessToken = authService.getAccessToken();
+		if (!accessToken) throw new Error('No Etsy access token available');
+
+		const response = await etsyRequest(
+			() =>
+				fetch(`${API_BASE_URL}/application/listings/${listingId}`, {
+					headers: {
+						'x-api-key': process.env.ETSY_API_KEY,
+						Authorization: `Bearer ${accessToken}`,
+					},
+				}),
+			{ endpoint: '/listings/:listing_id', method: 'GET', listing_id: listingId }
+		);
+
+		if (!response.ok) {
+			const text = await response.text().catch(() => '');
+			throw new Error(
+				`Failed to fetch listing ${listingId}: ${response.status} ${response.statusText} ${text.substring(0, 200)}`
+			);
+		}
+		const data = await response.json();
+		return data;
+	} catch (err) {
+		logger.error('getListing error', { listingId, error: err.message });
+		throw err;
+	}
+}
+
+/**
+ * Update an Etsy listing to set the SKU (sku field on a listing)
+ * Requires Etsy write scopes for listings
+ * @param {String} listingId
+ * @param {String} sku
+ */
+async function updateListingSku(listingId, sku) {
+	try {
+		const accessToken = authService.getAccessToken();
+		if (!accessToken) throw new Error('No Etsy access token available');
+
+		const shopId = await getShopId();
+
+		// First, fetch the listing inventory structure
+		const invResp = await etsyRequest(
+			() =>
+				fetch(`${API_BASE_URL}/application/listings/${listingId}/inventory`, {
+					method: 'GET',
+					headers: {
+						'x-api-key': process.env.ETSY_API_KEY,
+						Authorization: `Bearer ${accessToken}`,
+						'Content-Type': 'application/json',
+					},
+				}),
+			{
+				endpoint: '/listings/:listing_id/inventory',
+				method: 'GET',
+				listing_id: listingId,
+			}
+		);
+
+		if (!invResp.ok) {
+			const text = await invResp.text().catch(() => '');
+			// If inventory endpoint is not available for this listing, try a conservative PATCH fallback
+			if (invResp.status === 404) {
+				// Log the inventory GET 404 body snippet for diagnostics
+				logger.warn(
+					'Inventory endpoint returned 404, attempting PATCH fallback to listing endpoint',
+					{
+						listingId,
+						shopId,
+						inventoryBodySnippet: text ? text.substring(0, 1000) : null,
+					}
+				);
+
+				const patchPayload = { sku };
+				logger.debug('PATCH fallback payload', {
+					listingId,
+					shopId,
+					payloadSnippet: JSON.stringify(patchPayload).substring(0, 200),
+				});
+
+				const patchResp = await etsyRequest(
+					() =>
+						fetch(`${API_BASE_URL}/application/shops/${shopId}/listings/${listingId}`, {
+							method: 'PATCH',
+							headers: {
+								'x-api-key': process.env.ETSY_API_KEY,
+								Authorization: `Bearer ${accessToken}`,
+								'Content-Type': 'application/json',
+							},
+							body: JSON.stringify(patchPayload),
+						}),
+					{
+						endpoint: '/shops/:shop_id/listings/:listing_id',
+						method: 'PATCH',
+						listing_id: listingId,
+					}
+				);
+
+				// Capture raw response text for logging (regardless of ok) to aid debugging
+				const patchText = await patchResp.text().catch(() => '');
+
+				if (!patchResp.ok) {
+					logger.error('PATCH fallback failed', {
+						listingId,
+						shopId,
+						status: patchResp.status,
+						statusText: patchResp.statusText,
+						responseSnippet: patchText ? patchText.substring(0, 2000) : null,
+					});
+					throw new Error(
+						`Failed to PATCH listing ${listingId}: ${patchResp.status} ${patchResp.statusText} ${patchText.substring(0, 200)}`
+					);
+				}
+
+				// Try to parse JSON response for callers; include raw snippet in logs
+				let patchData = null;
+				try {
+					patchData = patchText ? JSON.parse(patchText) : {};
+				} catch (parseErr) {
+					logger.warn('Failed to parse PATCH response as JSON', {
+						listingId,
+						parseErr: parseErr.message,
+					});
+				}
+
+				logger.info('Patched listing SKU on Etsy (fallback)', {
+					listingId,
+					sku,
+					status: patchResp.status,
+					responseSnippet: patchText ? patchText.substring(0, 1000) : null,
+				});
+				return patchData;
+			}
+
+			throw new Error(
+				`Failed to fetch listing inventory ${listingId}: ${invResp.status} ${invResp.statusText} ${text.substring(0, 200)}`
+			);
+		}
+
+		const invData = await invResp.json();
+
+		// Build a sanitized inventory payload that contains only allowed fields
+		const updated = buildSanitizedInventory(invData, sku);
+		logger.debug('Sanitized inventory payload prepared', {
+			listingId,
+			payloadSnippet: JSON.stringify(updated).substring(0, 1000),
+		});
+
+		// PUT the modified inventory back
+		const putResp = await etsyRequest(
+			() =>
+				fetch(`${API_BASE_URL}/application/listings/${listingId}/inventory`, {
+					method: 'PUT',
+					headers: {
+						'x-api-key': process.env.ETSY_API_KEY,
+						Authorization: `Bearer ${accessToken}`,
+						'Content-Type': 'application/json',
+					},
+					body: JSON.stringify(updated),
+				}),
+			{
+				endpoint: '/listings/:listing_id/inventory',
+				method: 'PUT',
+				listing_id: listingId,
+			}
+		);
+
+		if (!putResp.ok) {
+			const text = await putResp.text().catch(() => '');
+			throw new Error(
+				`Failed to update listing inventory ${listingId}: ${putResp.status} ${putResp.statusText} ${text.substring(0, 200)}`
+			);
+		}
+
+		const putData = await putResp.json();
+		logger.info('Updated listing inventory SKU on Etsy', { listingId, sku });
+		return putData;
+	} catch (err) {
+		logger.error('updateListingSku error', { listingId, sku, error: err.message });
+		throw err;
+	}
+}
+
+// extend exports with new helpers
+module.exports.getListing = getListing;
+module.exports.updateListingSku = updateListingSku;

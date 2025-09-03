@@ -86,5 +86,8 @@ web_modules/
 # Data files (like downloaded Shopify product lists)
 data/*.jsonl
 
+# Sample data files that might contain customer information
+test-scripts/sample-*.json
+
 # Auth file
 auth.json

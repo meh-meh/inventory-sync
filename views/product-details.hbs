@@ -32,8 +32,8 @@
                     <div class="card-body text-center">
                         {{#if product.etsy_data.images.0.url}}
                             <img src="{{product.etsy_data.images.0.url}}" alt="{{product.name}}" class="product-image img-thumbnail">
-                        {{else if product.shopify_data.images.0.url}}
-                             <img src="{{product.shopify_data.images.0.url}}" alt="{{product.name}}" class="product-image img-thumbnail">
+                        {{else if product.raw_shopify_data.product.images.edges.0.node.originalSrc}}
+                             <img src="{{product.raw_shopify_data.product.images.edges.0.node.originalSrc}}" alt="{{product.name}}" class="product-image img-thumbnail">
                         {{else}}
                             <div class="text-muted p-5 border rounded bg-light">
                                 <i class="bi bi-image" style="font-size: 3rem;"></i><br>
@@ -107,6 +107,7 @@
                                 <dd class="col-sm-8">{{product.etsy_data.state}}</dd>
                             </dl>
                             <p class="sync-info">Last Synced: {{formatDate product.etsy_data.last_synced}}</p>
+                            <a class="btn btn-sm btn-outline-secondary me-2" href="https://www.etsy.com/listing/{{product.etsy_data.listing_id}}" target="_blank" rel="noopener noreferrer">View on Etsy</a>
                             <button class="btn btn-sm btn-primary me-2" onclick="syncProduct('{{product.sku}}', 'etsy')">Sync with Etsy</button>
                             <button class="btn btn-sm btn-danger" onclick="unlinkProduct('{{product.sku}}', 'etsy')">Unlink from Etsy</button>
                         {{else}}
@@ -141,8 +142,55 @@
                                 <dd class="col-sm-8">{{product.shopify_data.inventory_quantity}}</dd>
                             </dl>
                             <p class="sync-info">Last Synced: {{formatDate product.shopify_data.last_synced}}</p>
-                            <button class="btn btn-sm btn-success me-2" onclick="syncProduct('{{product.sku}}', 'shopify')">Sync with Shopify</button>
-                            <button class="btn btn-sm btn-danger" onclick="unlinkProduct('{{product.sku}}', 'shopify')">Unlink from Shopify</button>
+                                {{!-- View on Shopify: prefer a direct product_url, then storefront (shop_domain + handle), then admin fallback (shop_domain + product_id) --}}
+                                {{!-- Prefer shopify_data fields, fall back to raw_shopify_data.product if present --}}
+                                {{#if product.shopify_data.product_url}}
+                                    <a class="btn btn-sm btn-outline-secondary me-2" href="{{product.shopify_data.product_url}}" target="_blank" rel="noopener noreferrer">View on Shopify</a>
+                                {{else}}
+                                    {{!-- Use product.shopify_data.shop_domain if present, otherwise fall back to shopifyShopName passed from the server --}}
+                                    {{#if product.shopify_data.shop_domain}}
+                                        {{#if product.shopify_data.handle}}
+                                            <a class="btn btn-sm btn-outline-secondary me-2" href="https://{{product.shopify_data.shop_domain}}/products/{{product.shopify_data.handle}}" target="_blank" rel="noopener noreferrer">View on Shopify</a>
+                                        {{else if product.shopify_data.product_id}}
+                                            {{!-- Prefer admin.shopify.com pattern if shopifyShopName is available --}}
+                                            {{#if shopifyShopName}}
+                                                <a class="btn btn-sm btn-outline-secondary me-2" href="https://admin.shopify.com/store/{{shopifyShopName}}/products/{{product.shopify_data.product_id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                            {{else}}
+                                                <a class="btn btn-sm btn-outline-secondary me-2" href="https://{{product.shopify_data.shop_domain}}/admin/products/{{product.shopify_data.product_id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                            {{/if}}
+                                        {{/if}}
+                                    {{else if shopifyShopName}}
+                                        {{!-- Only show admin links when we have the store name and a product id. Avoid using shopifyShopName as a domain directly (prevents malformed URLs). --}}
+                                        {{#if product.shopify_data.product_id}}
+                                            <a class="btn btn-sm btn-outline-secondary me-2" href="https://admin.shopify.com/store/{{shopifyShopName}}/products/{{product.shopify_data.product_id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                        {{/if}}
+                                    {{else if product.raw_shopify_data.product}}
+                                        {{!-- raw_shopify_data.product may contain online_store_url, handle, id, etc. --}}
+                                        {{#with product.raw_shopify_data.product}}
+                                            {{#if online_store_url}}
+                                                <a class="btn btn-sm btn-outline-secondary me-2" href="{{online_store_url}}" target="_blank" rel="noopener noreferrer">View on Shopify</a>
+                                            {{else}}
+                                                {{!-- Try to build using available domains --}}
+                                                {{#if handle}}
+                                                    {{#if ../product.shopify_data.shop_domain}}
+                                                        <a class="btn btn-sm btn-outline-secondary me-2" href="https://{{../product.shopify_data.shop_domain}}/products/{{handle}}" target="_blank" rel="noopener noreferrer">View on Shopify</a>
+                                                    {{else if ../shopifyShopName}}
+                                                        {{!-- Avoid using shopifyShopName as a raw domain; only render admin link when we have product id --}}
+                                                        <a class="btn btn-sm btn-outline-secondary me-2" href="https://admin.shopify.com/store/{{../shopifyShopName}}/products/{{../product.shopify_data.product_id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                                    {{/if}}
+                                                {{else if id}}
+                                                    {{#if ../shopifyShopName}}
+                                                        <a class="btn btn-sm btn-outline-secondary me-2" href="https://admin.shopify.com/store/{{../shopifyShopName}}/products/{{id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                                    {{else if ../product.shopify_data.shop_domain}}
+                                                        <a class="btn btn-sm btn-outline-secondary me-2" href="https://{{../product.shopify_data.shop_domain}}/admin/products/{{id}}" target="_blank" rel="noopener noreferrer">Open in Shopify Admin</a>
+                                                    {{/if}}
+                                                {{/if}}
+                                            {{/if}}
+                                        {{/with}}
+                                    {{/if}}
+                                {{/if}}
+                                <button class="btn btn-sm btn-success me-2" onclick="syncProduct('{{product.sku}}', 'shopify')">Sync with Shopify</button>
+                                <button class="btn btn-sm btn-danger" onclick="unlinkProduct('{{product.sku}}', 'shopify')">Unlink from Shopify</button>
                         {{else}}
                             <p>This product is not currently linked to a Shopify product/variant.</p>
                             <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#linkShopifyModal">Link to Shopify Product</button>
@@ -172,11 +220,138 @@
     </div>
 
     <!-- Modals (Adjust Inventory, Link Etsy, Link Shopify, Edit Properties) -->
-    <!-- ... (Keep existing modals) ... -->
+        <!-- ... (Keep existing modals) ... -->
+
+        <!-- Link Etsy Modal: shows candidate ETSY- records and allows manual entry -->
+        <div class="modal fade" id="linkEtsyModal" tabindex="-1" aria-labelledby="linkEtsyModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="linkEtsyModalLabel">Link Etsy Listing</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Search suggestions are based on title similarity and presence of images. Select one to link, or enter an Etsy listing ID manually (e.g. 4303887099).</p>
+                        <div id="etsyCandidatesArea">
+                            <p class="text-muted">Loading suggestions...</p>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label for="manualEtsyId" class="form-label">Manual Etsy Listing ID</label>
+                            <input type="text" id="manualEtsyId" class="form-control" placeholder="e.g. 4303887099">
+                        </div>
+                        <div id="linkResult" class="mt-2"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" id="linkManualBtn">Link Manual ID</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
     <!-- Scripts specific to this view -->
     <script>
-        // ... (Keep existing product details script) ...
+        // Existing product details script area preserved
+
+        // New: search Etsy candidates and link
+        (function(){
+            const sku = '{{product.sku}}';
+            const candidatesArea = document.getElementById('etsyCandidatesArea');
+            const linkResult = document.getElementById('linkResult');
+            const manualInput = document.getElementById('manualEtsyId');
+            const linkManualBtn = document.getElementById('linkManualBtn');
+
+            // When modal opens, fetch suggestions
+            const linkModalEl = document.getElementById('linkEtsyModal');
+            linkModalEl.addEventListener('show.bs.modal', async function () {
+                candidatesArea.innerHTML = '<p class="text-muted">Loading suggestions...</p>';
+                linkResult.innerHTML = '';
+                try {
+                    const resp = await fetch(`/inventory/${encodeURIComponent(sku)}/etsy-candidates`);
+                    if (!resp.ok) throw new Error('Failed to fetch candidates');
+                    const data = await resp.json();
+                    renderCandidates(data.candidates || []);
+                } catch (e) {
+                    candidatesArea.innerHTML = '<p class="text-danger">Error loading suggestions.</p>';
+                }
+            });
+
+            function renderCandidates(list) {
+                if (!list || list.length === 0) {
+                    candidatesArea.innerHTML = '<p class="text-muted">No suggestions found.</p>';
+                    return;
+                }
+                const ul = document.createElement('div');
+                ul.className = 'list-group';
+                list.forEach(item => {
+                    const imgUrl = (item.etsy_data && item.etsy_data.images && item.etsy_data.images[0] && item.etsy_data.images[0].url) || '';
+                    const title = (item.etsy_data && item.etsy_data.title) || item.name || item.sku;
+                    const li = document.createElement('div');
+                    li.className = 'list-group-item d-flex align-items-center justify-content-between';
+                    li.innerHTML = `
+                        <div class="d-flex align-items-center">
+                            ${imgUrl ? `<img src="${imgUrl}" style="width:64px;height:64px;object-fit:cover;margin-right:12px;border-radius:4px;">` : ''}
+                            <div>
+                                <div><strong>${escapeHtml(title)}</strong></div>
+                                <div class="text-muted small">SKU: ${escapeHtml(item.sku || '')} • Listing: ${escapeHtml(item.etsy_data && item.etsy_data.listing_id || '')}</div>
+                            </div>
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-primary linkCandidateBtn" data-listing="${escapeHtml(item.etsy_data && item.etsy_data.listing_id || '')}" data-etsysku="${escapeHtml(item.sku || '')}">Link</button>
+                        </div>
+                    `;
+                    ul.appendChild(li);
+                });
+                candidatesArea.innerHTML = '';
+                candidatesArea.appendChild(ul);
+
+                // attach handlers
+                Array.from(document.getElementsByClassName('linkCandidateBtn')).forEach(btn=>{
+                    btn.addEventListener('click', async function(){
+                        const listing = this.getAttribute('data-listing');
+                        const etsySku = this.getAttribute('data-etsysku');
+                        await performLink({ listingId: listing, etsySku });
+                    });
+                });
+            }
+
+            async function performLink(body) {
+                linkResult.innerHTML = '<div class="text-muted">Linking...</div>';
+                try {
+                    const resp = await fetch(`/inventory/${encodeURIComponent(sku)}/link-etsy`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    const data = await resp.json();
+                    if (resp.ok) {
+                        // If Etsy update returned an error object, show it and don't auto-refresh
+                        if (data.etsyUpdateResult && data.etsyUpdateResult.error) {
+                            linkResult.innerHTML = `<div class="text-warning">Linked locally, but Etsy update failed: ${escapeHtml(data.etsyUpdateResult.error)}</div>`;
+                        } else {
+                            linkResult.innerHTML = '<div class="text-success">Linked successfully. Refreshing...</div>';
+                            setTimeout(()=>location.reload(), 800);
+                        }
+                    } else {
+                        linkResult.innerHTML = `<div class="text-danger">Error: ${escapeHtml(data.error || 'Failed to link')}</div>`;
+                    }
+                } catch (e) {
+                    linkResult.innerHTML = '<div class="text-danger">Network error while linking.</div>';
+                }
+            }
+
+            linkManualBtn.addEventListener('click', async function(){
+                const val = (manualInput.value || '').trim();
+                if (!val) {
+                    linkResult.innerHTML = '<div class="text-danger">Enter an Etsy listing ID first.</div>';
+                    return;
+                }
+                await performLink({ listingId: val });
+            });
+
+            function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+        })();
     </script>
 </body>
 </html>

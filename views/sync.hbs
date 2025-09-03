@@ -105,6 +105,37 @@
         </div>
     </div>
 
+    <!-- Section for Ongoing Automatic Syncs -->
+    {{#if ongoingAutoSyncs.length}}
+    <div class="container mt-4">
+        <h4>Ongoing Automatic Syncs</h4>
+        <div class="row">
+            {{#each ongoingAutoSyncs}}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>{{this.marketplace}} - {{this.syncType}}</strong>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">Sync ID: <small class="text-muted">{{this.syncId}}</small></p>
+                        <p class="card-text">Status: {{this.currentPhase}}</p>
+                        <p class="card-text">Progress: {{this.progress}}%</p>
+                        <div class="progress mb-2">
+                            <div class="progress-bar" role="progressbar" style="width: {{this.progress}}%;" aria-valuenow="{{this.progress}}" aria-valuemin="0" aria-valuemax="100">{{this.progress}}%</div>
+                        </div>
+                        <p class="card-text">Started: {{formatDate this.startTime}}</p>
+                        {{#if this.error}}
+                        <p class="card-text text-danger">Error: {{this.error}}</p>
+                        {{/if}}
+                         <p class="card-text"><small>Items Processed: {{this.processedCount}} / {{this.totalCount}}</small></p>
+                    </div>
+                </div>
+            </div>
+            {{/each}}
+        </div>
+    </div>
+    {{/if}}
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     
     <!-- Sync Status Handling -->
@@ -281,10 +312,19 @@
             });
             
             let syncUrl;
+            let fetchOptions = { method: 'GET' }; // Default to GET
+
             if (syncType === 'Products') {
                 syncUrl = `/sync/sync-${marketplace.toLowerCase()}?syncId=${syncId}`;
             } else if (syncType === 'Orders') {
-                syncUrl = `/sync/sync-orders?marketplace=${marketplace.toLowerCase()}&syncId=${syncId}`;
+                syncUrl = `/sync/sync-orders`;
+                fetchOptions = {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ marketplace: marketplace.toLowerCase(), syncId })
+                };
             } else if (syncType === 'Reconcile') {
                 syncUrl = `/sync/secretroute?syncId=${syncId}`;
             } 
@@ -297,7 +337,7 @@
             }
 
             // Fetch to start the background sync process
-            fetch(syncUrl)
+            fetch(syncUrl, fetchOptions)
                 .then(response => {
                     if (!response.ok) {
                         // Attempt to read error message if available

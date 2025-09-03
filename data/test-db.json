@@ -1,0 +1,1066 @@
+{
+  "products": [
+    {
+      "sku": "FAKE-SKU-0001",
+      "name": "TestProduct 1",
+      "quantity_on_hand": 20,
+      "quantity_committed": 2,
+      "quantity_available": 18,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1001",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify1/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1001",
+        "handle": "test-product-1",
+        "product_url": "https://example.com/products/test-product-1",
+        "quantity": 20,
+        "inventory_quantity": 20
+      },
+      "etsy_data": {
+        "listing_id": "2001",
+        "quantity": 18,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy1/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb1/300/200",
+      "shopifyShopName": "shop-1",
+      "shopify_url": "https://admin.shopify.com/store/shop-1/products/1001",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0002",
+      "name": "TestProduct 2",
+      "quantity_on_hand": 15,
+      "quantity_committed": 1,
+      "quantity_available": 14,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1002",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify2/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1002",
+        "handle": "test-product-2",
+        "product_url": "https://example.com/products/test-product-2",
+        "quantity": 15,
+        "inventory_quantity": 15
+      },
+      "etsy_data": {
+        "listing_id": "2002",
+        "quantity": 12,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy2/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb2/300/200",
+      "shopifyShopName": "shop-2",
+      "shopify_url": "https://admin.shopify.com/store/shop-2/products/1002",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0003",
+      "name": "TestProduct 3",
+      "quantity_on_hand": 8,
+      "quantity_committed": 0,
+      "quantity_available": 8,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1003",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify3/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1003",
+        "handle": "test-product-3",
+        "product_url": "https://example.com/products/test-product-3",
+        "quantity": 8,
+        "inventory_quantity": 8
+      },
+      "etsy_data": {
+        "listing_id": "2003",
+        "quantity": 6,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy3/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb3/300/200",
+      "shopifyShopName": "shop-3",
+      "shopify_url": "https://admin.shopify.com/store/shop-3/products/1003",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0004",
+      "name": "TestProduct 4",
+      "quantity_on_hand": 5,
+      "quantity_committed": 1,
+      "quantity_available": 4,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1004",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify4/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1004",
+        "handle": "test-product-4",
+        "product_url": "https://example.com/products/test-product-4",
+        "quantity": 5,
+        "inventory_quantity": 5
+      },
+      "etsy_data": {
+        "listing_id": "2004",
+        "quantity": 5,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy4/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb4/300/200",
+      "shopifyShopName": "shop-4",
+      "shopify_url": "https://admin.shopify.com/store/shop-4/products/1004",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0005",
+      "name": "TestProduct 5",
+      "quantity_on_hand": 2,
+      "quantity_committed": 0,
+      "quantity_available": 2,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1005",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify5/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1005",
+        "handle": "test-product-5",
+        "product_url": "https://example.com/products/test-product-5",
+        "quantity": 2,
+        "inventory_quantity": 2
+      },
+      "etsy_data": {
+        "listing_id": "2005",
+        "quantity": 1,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy5/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb5/300/200",
+      "shopifyShopName": "shop-5",
+      "shopify_url": "https://admin.shopify.com/store/shop-5/products/1005",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0006",
+      "name": "TestProduct 6",
+      "quantity_on_hand": 12,
+      "quantity_committed": 2,
+      "quantity_available": 10,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1006",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify6/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1006",
+        "handle": "test-product-6",
+        "product_url": "https://example.com/products/test-product-6",
+        "quantity": 12,
+        "inventory_quantity": 12
+      },
+      "etsy_data": {
+        "listing_id": "2006",
+        "quantity": 11,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy6/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb6/300/200",
+      "shopifyShopName": "shop-6",
+      "shopify_url": "https://admin.shopify.com/store/shop-6/products/1006",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0007",
+      "name": "TestProduct 7",
+      "quantity_on_hand": 30,
+      "quantity_committed": 5,
+      "quantity_available": 25,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1007",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify7/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1007",
+        "handle": "test-product-7",
+        "product_url": "https://example.com/products/test-product-7",
+        "quantity": 30,
+        "inventory_quantity": 30
+      },
+      "etsy_data": {
+        "listing_id": "2007",
+        "quantity": 28,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy7/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb7/300/200",
+      "shopifyShopName": "shop-7",
+      "shopify_url": "https://admin.shopify.com/store/shop-7/products/1007",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0008",
+      "name": "TestProduct 8",
+      "quantity_on_hand": 18,
+      "quantity_committed": 3,
+      "quantity_available": 15,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1008",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify8/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1008",
+        "handle": "test-product-8",
+        "product_url": "https://example.com/products/test-product-8",
+        "quantity": 18,
+        "inventory_quantity": 18
+      },
+      "etsy_data": {
+        "listing_id": "2008",
+        "quantity": 16,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy8/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb8/300/200",
+      "shopifyShopName": "shop-8",
+      "shopify_url": "https://admin.shopify.com/store/shop-8/products/1008",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0009",
+      "name": "TestProduct 9",
+      "quantity_on_hand": 6,
+      "quantity_committed": 1,
+      "quantity_available": 5,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1009",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify9/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1009",
+        "handle": "test-product-9",
+        "product_url": "https://example.com/products/test-product-9",
+        "quantity": 6,
+        "inventory_quantity": 6
+      },
+      "etsy_data": {
+        "listing_id": "2009",
+        "quantity": 5,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy9/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb9/300/200",
+      "shopifyShopName": "shop-9",
+      "shopify_url": "https://admin.shopify.com/store/shop-9/products/1009",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0010",
+      "name": "TestProduct 10",
+      "quantity_on_hand": 9,
+      "quantity_committed": 0,
+      "quantity_available": 9,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1010",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify10/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1010",
+        "handle": "test-product-10",
+        "product_url": "https://example.com/products/test-product-10",
+        "quantity": 9,
+        "inventory_quantity": 9
+      },
+      "etsy_data": {
+        "listing_id": "2010",
+        "quantity": 9,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy10/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb10/300/200",
+      "shopifyShopName": "shop-10",
+      "shopify_url": "https://admin.shopify.com/store/shop-10/products/1010",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0011",
+      "name": "TestProduct 11",
+      "quantity_on_hand": 7,
+      "quantity_committed": 1,
+      "quantity_available": 6,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "etsy_data": {
+        "listing_id": "2011",
+        "quantity": 6,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy11/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb11/300/200",
+      "shopifyConnected": false,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0012",
+      "name": "TestProduct 12",
+      "quantity_on_hand": 4,
+      "quantity_committed": 0,
+      "quantity_available": 4,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "etsy_data": {
+        "listing_id": "2012",
+        "quantity": 4,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy12/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb12/300/200",
+      "shopifyConnected": false,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0013",
+      "name": "TestProduct 13",
+      "quantity_on_hand": 11,
+      "quantity_committed": 2,
+      "quantity_available": 9,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "etsy_data": {
+        "listing_id": "2013",
+        "quantity": 10,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy13/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb13/300/200",
+      "shopifyConnected": false,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0014",
+      "name": "TestProduct 14",
+      "quantity_on_hand": 3,
+      "quantity_committed": 0,
+      "quantity_available": 3,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "etsy_data": {
+        "listing_id": "2014",
+        "quantity": 3,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy14/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb14/300/200",
+      "shopifyConnected": false,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0015",
+      "name": "TestProduct 15",
+      "quantity_on_hand": 1,
+      "quantity_committed": 0,
+      "quantity_available": 1,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "etsy_data": {
+        "listing_id": "2015",
+        "quantity": 1,
+        "images": [
+          {
+            "url": "https://picsum.photos/seed/etsy15/600/400"
+          }
+        ]
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb15/300/200",
+      "shopifyConnected": false,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0016",
+      "name": "TestProduct 16",
+      "quantity_on_hand": 14,
+      "quantity_committed": 2,
+      "quantity_available": 12,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1016",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify16/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1016",
+        "handle": "test-product-16",
+        "product_url": "https://example.com/products/test-product-16",
+        "quantity": 14,
+        "inventory_quantity": 14
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb16/300/200",
+      "shopifyShopName": "shop-16",
+      "shopify_url": "https://admin.shopify.com/store/shop-16/products/1016",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0017",
+      "name": "TestProduct 17",
+      "quantity_on_hand": 22,
+      "quantity_committed": 4,
+      "quantity_available": 18,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1017",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify17/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1017",
+        "handle": "test-product-17",
+        "product_url": "https://example.com/products/test-product-17",
+        "quantity": 22,
+        "inventory_quantity": 22
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb17/300/200",
+      "shopifyShopName": "shop-17",
+      "shopify_url": "https://admin.shopify.com/store/shop-17/products/1017",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0018",
+      "name": "TestProduct 18",
+      "quantity_on_hand": 13,
+      "quantity_committed": 1,
+      "quantity_available": 12,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1018",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify18/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1018",
+        "handle": "test-product-18",
+        "product_url": "https://example.com/products/test-product-18",
+        "quantity": 13,
+        "inventory_quantity": 13
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb18/300/200",
+      "shopifyShopName": "shop-18",
+      "shopify_url": "https://admin.shopify.com/store/shop-18/products/1018",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0019",
+      "name": "TestProduct 19",
+      "quantity_on_hand": 17,
+      "quantity_committed": 3,
+      "quantity_available": 14,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1019",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify19/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1019",
+        "handle": "test-product-19",
+        "product_url": "https://example.com/products/test-product-19",
+        "quantity": 17,
+        "inventory_quantity": 17
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb19/300/200",
+      "shopifyShopName": "shop-19",
+      "shopify_url": "https://admin.shopify.com/store/shop-19/products/1019",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    },
+    {
+      "sku": "FAKE-SKU-0020",
+      "name": "TestProduct 20",
+      "quantity_on_hand": 25,
+      "quantity_committed": 0,
+      "quantity_available": 25,
+      "last_updated": "2025-09-01T00:00:00Z",
+      "raw_shopify_data": {
+        "product": {
+          "id": "gid://shopify/Product/1020",
+          "images": {
+            "edges": [
+              {
+                "node": {
+                  "originalSrc": "https://picsum.photos/seed/shopify20/600/400"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "shopify_data": {
+        "product_id": "1020",
+        "handle": "test-product-20",
+        "product_url": "https://example.com/products/test-product-20",
+        "quantity": 25,
+        "inventory_quantity": 25
+      },
+      "thumbnail_url": "https://picsum.photos/seed/thumb20/300/200",
+      "shopifyShopName": "shop-20",
+      "shopify_url": "https://admin.shopify.com/store/shop-20/products/1020",
+      "shopifyConnected": true,
+      "is_test_data": true,
+      "created_at": "2025-09-01T00:00:00Z"
+    }
+  ],
+  "orders": [
+    {
+      "order_id": "S-TEST-00001",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0001",
+          "quantity": 1,
+          "price": 19.99,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-08-28T12:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-08-28T12:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00002",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0002",
+          "quantity": 2,
+          "price": 29.99,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-08-29T13:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-08-29T13:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00003",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0003",
+          "quantity": 1,
+          "price": 9.99,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-08-30T14:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-08-30T14:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00004",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0004",
+          "quantity": 3,
+          "price": 39.99,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-08-31T15:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-08-31T15:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00005",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0005",
+          "quantity": 1,
+          "price": 5.99,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T09:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T09:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00006",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0006",
+          "quantity": 2,
+          "price": 24.99,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T10:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T10:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00007",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0007",
+          "quantity": 1,
+          "price": 49.99,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T11:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T11:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00008",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0008",
+          "quantity": 2,
+          "price": 14.99,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T12:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T12:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00009",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0009",
+          "quantity": 1,
+          "price": 7.5,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T13:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T13:00:00Z"
+    },
+    {
+      "order_id": "S-TEST-00010",
+      "marketplace": "shopify",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0010",
+          "quantity": 1,
+          "price": 12,
+          "is_digital": false,
+          "marketplace": "shopify"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T14:00:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T14:00:00Z"
+    },
+    {
+      "order_id": "E-TEST-00001",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0001",
+          "quantity": 1,
+          "price": 19.99,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-08-28T12:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-08-28T12:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00002",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0002",
+          "quantity": 1,
+          "price": 29.99,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-08-29T13:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-08-29T13:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00003",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0003",
+          "quantity": 2,
+          "price": 9.99,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-08-30T14:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-08-30T14:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00004",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0004",
+          "quantity": 1,
+          "price": 39.99,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-08-31T15:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-08-31T15:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00005",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0005",
+          "quantity": 1,
+          "price": 5.99,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T09:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T09:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00006",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0006",
+          "quantity": 1,
+          "price": 24.99,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T10:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T10:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00007",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0007",
+          "quantity": 2,
+          "price": 49.99,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T11:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T11:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00008",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0008",
+          "quantity": 1,
+          "price": 14.99,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T12:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T12:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00009",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0009",
+          "quantity": 1,
+          "price": 7.5,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T13:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T13:30:00Z"
+    },
+    {
+      "order_id": "E-TEST-00010",
+      "marketplace": "etsy",
+      "items": [
+        {
+          "sku": "FAKE-SKU-0010",
+          "quantity": 1,
+          "price": 12,
+          "is_digital": false,
+          "marketplace": "etsy"
+        }
+      ],
+      "status": "unshipped",
+      "created_at": "2025-09-01T14:30:00Z",
+      "is_test_data": true,
+      "order_date": "2025-09-01T14:30:00Z"
+    }
+  ]
+}

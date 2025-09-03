@@ -56,7 +56,7 @@
                             <div class="col-md-6">
                                 <dl class="row">
                                     <dt class="col-sm-4">Order Date</dt>
-                                    <dd class="col-sm-8">{{formatDate order.order_date}}</dd>
+                                    <dd class="col-sm-8">{{ order.order_date}}</dd>
                                     
                                     <dt class="col-sm-4">Status</dt>
                                     <dd class="col-sm-8">
@@ -73,7 +73,7 @@
                                 {{#if order.shipped_date}}
                                 <dl class="row">
                                     <dt class="col-sm-4">Shipped Date</dt>
-                                    <dd class="col-sm-8">{{formatDate order.shipped_date}}</dd>
+                                    <dd class="col-sm-8">{{ order.shipped_date}}</dd>
                                 </dl>
                                 {{/if}}
 
@@ -81,9 +81,9 @@
                                     <dt class="col-sm-4">Last Sync</dt>
                                     <dd class="col-sm-8">
                                         {{#if (eq order.marketplace 'etsy')}}
-                                            {{formatDate order.last_etsy_sync}}
+                                            {{ order.last_etsy_sync}}
                                         {{else}}
-                                            {{formatDate order.last_shopify_sync}}
+                                            {{ order.last_shopify_sync}}
                                         {{/if}}
                                     </dd>
                                 </dl>
@@ -158,9 +158,13 @@
                             Sync Status from Shopify
                         </button>
 
-                        <a href="https://{{process.env.SHOPIFY_SHOP_NAME}}/admin/orders/{{order.order_id}}" target="_blank" class="btn btn-outline-success w-100">
+                        {{#if shopifyShopName}}
+                        <a href="https://{{shopifyShopName}}/admin/orders/{{order.order_id}}" target="_blank" class="btn btn-outline-success w-100">
                             View on Shopify
                         </a>
+                        {{else}}
+                        <a href="#" class="btn btn-outline-secondary w-100 disabled" title="Shopify shop not configured">Shopify shop not configured</a>
+                        {{/if}}
                         {{/if}}
                     </div>
                 </div>

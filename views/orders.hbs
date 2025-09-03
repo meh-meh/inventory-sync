@@ -25,12 +25,12 @@
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1>Orders</h1>
             <div class="btn-group" role="group">
-                <a href="/sync/sync-orders?marketplace=etsy" class="btn btn-outline-primary">
+                <button onclick="syncMarketplaceOrders('etsy')" class="btn btn-outline-primary">
                     <i class="bi bi-arrow-repeat me-1"></i> Sync Etsy Orders
-                </a>
-                <a href="/sync/sync-orders?marketplace=shopify" class="btn btn-outline-success">
+                </button>
+                <button onclick="syncMarketplaceOrders('shopify')" class="btn btn-outline-success">
                     <i class="bi bi-arrow-repeat me-1"></i> Sync Shopify Orders
-                </a>
+                </button>
             </div>
         </div>
         
@@ -51,6 +51,9 @@
                                 Shopify ({{counts.shopify}})
                             </a>
                         </div>
+                        <a href="/orders/view?view=sku-needs" class="btn btn-sm btn-outline-secondary ms-3">
+                            SKU Needs View
+                        </a>
                     </div>
                 </div>
             </div>
@@ -242,6 +245,30 @@
 
     <!-- Scripts specific to this view -->
     <script>
+        async function syncMarketplaceOrders(marketplace) {
+            try {
+                const response = await fetch('/sync/sync-orders', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ marketplace })
+                });
+                if (response.ok) {
+                    // Optionally, provide feedback to the user or redirect
+                    // For now, we can just reload or inform the user
+                    alert(marketplace + ' orders sync initiated.');
+                    // location.reload(); // Uncomment if you want to reload the page
+                } else {
+                    const errorData = await response.json();
+                    alert(`Failed to sync ${marketplace} orders: ${errorData.message || response.statusText}`);
+                }
+            } catch (error) {
+                console.error(`Error syncing ${marketplace} orders:`, error);
+                alert(`Error syncing ${marketplace} orders.`);
+            }
+        }
+        
         async function syncEtsyOrder(id) {
             try {
                 const response = await fetch(`/orders/${id}/sync-status`, {

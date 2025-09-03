@@ -1,5 +1,25 @@
-const moment = require('moment');
 const { logger } = require('./logger'); // Import logger
+
+/**
+ * Get the ordinal suffix for a given day of the month.
+ * @param {number} day - The day of the month (1-31).
+ * @returns {string} The ordinal suffix (e.g., "st", "nd", "rd", "th").
+ */
+function getOrdinalSuffix(day) {
+	if (day > 3 && day < 21) {
+		return 'th';
+	}
+	switch (day % 10) {
+		case 1:
+			return 'st';
+		case 2:
+			return 'nd';
+		case 3:
+			return 'rd';
+		default:
+			return 'th';
+	}
+}
 
 /**
  * Safely prepares an object for JSON.stringify by handling potential circular references
@@ -70,37 +90,60 @@ module.exports = function () {
 		 * @param {String} options.hash.format - Date format string (moment.js format)
 		 * @returns {String} Formatted date string or fallback text
 		 */
-		formatDate: function (date, options) {
+		formatDate: function (date) {
+			// TODO: Make more readable date format:
+			// - For a timestamp within the last 24 hours, just show "Today" or "Yesterday"
+			// - For a timestamp within the last 7 days, show "X days ago"
+			// - For a timestamp from the current year, show month and ordinal day (e.g., "Jan 1st")
+			// - For older timestamps, show month and year
+
 			// Renamed second arg to 'options'
+			const today = new Date();
+			const targetDate = new Date(date);
+
 			if (!date) {
 				// logger.debug('formatDate helper received null/undefined date');
 				return 'N/A';
 			}
 
-			// Get format string from hash arguments, or use default
-			const fmt =
-				typeof options?.hash?.format === 'string'
-					? options.hash.format
-					: 'YYYY-MM-DD HH:mm:ss';
+			const noonToday = new Date(today);
+			noonToday.setHours(12, 0, 0, 0);
 
-			// logger.debug('formatDate using format:', { format: fmt });
+			const noonDate = new Date(targetDate);
+			noonDate.setHours(12, 0, 0, 0);
 
-			try {
-				const mDate = moment(date);
-				if (!mDate.isValid()) {
-					logger.warn('formatDate helper received invalid date:', { date });
-					return 'Invalid Date';
-				}
-				return mDate.format(fmt);
-			} catch (error) {
-				// Log the error with more context
-				logger.error('Error formatting date in formatDate helper:', {
-					dateInput: date,
-					resolvedFormat: fmt,
-					errorMessage: error.message,
-					stack: error.stack,
-				});
-				return 'Invalid Date'; // Return a safe value on error
+			const diffDays = (noonToday - noonDate) / (1000 * 60 * 60 * 24);
+
+			// Check if date was today
+			if (diffDays < 1) {
+				return 'Today';
+			}
+			// Else check if date was yesterday
+			else if (diffDays < 2) {
+				return 'Yesterday';
+			}
+			// Else check if date was an earlier day in the current week (e.g., Monday if today is Wednesday)
+			else if (diffDays <= noonToday.getDay()) {
+				// noonToday.getDay() is 0 for Sunday, 1 for Monday, ..., 6 for Saturday.
+				// Since "Today" (diffDays < 1) and "Yesterday" (diffDays < 2) are already handled,
+				// this condition effectively covers diffDays >= 2 up to the current day of the week.
+				return new Date(targetDate).toLocaleDateString('default', { weekday: 'long' });
+			}
+			// Else check if date is within 7 days of the previous Sunday. show "Last Week"
+			else if (diffDays <= noonToday.getDay() + 7) {
+				return 'Last Week';
+			}
+			// Else check if date was this year
+			else if (targetDate.getFullYear() === today.getFullYear()) {
+				return `${targetDate.toLocaleString('default', {
+					month: 'short',
+				})} ${targetDate.getDate()}${getOrdinalSuffix(targetDate.getDate())}`;
+			}
+			// Otherwise, show month and year
+			else {
+				return `${targetDate.toLocaleString('default', {
+					month: 'short',
+				})} ${targetDate.getFullYear()}`;
 			}
 		},
 
@@ -200,6 +243,20 @@ module.exports = function () {
 		 */
 		subtract: function (a, b) {
 			return (Number(a) || 0) - (Number(b) || 0);
+		},
+
+		/**
+		 * Greater than comparison
+		 */
+		gt: function (a, b) {
+			return Number(a) > Number(b);
+		},
+
+		/**
+		 * Less than comparison
+		 */
+		lt: function (a, b) {
+			return Number(a) < Number(b);
 		},
 
 		/**

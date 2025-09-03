@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const Product = require('../models/product');
+const etsyHelpers = require('../utils/etsy-helpers');
 const { logger } = require('../utils/logger');
+const { getProductThumbnail, buildShopifyUrl } = require('../utils/product-helpers');
 
 /**
  * Get the main inventory gallery view
@@ -106,14 +108,21 @@ router.get('/api/data', async (req, res) => {
 				'shopify_data.variant_id': 1,
 				'shopify_data.inventory_quantity': 1,
 				'shopify_data.last_synced': 1,
+				// include raw shopify product images (GraphQL edges) and online_store_url as fallback
+				'raw_shopify_data.product.images': 1,
+				'raw_shopify_data.product.online_store_url': 1,
 			})
 			.sort(sort)
 			.skip(skip)
 			.limit(limit);
 
-		// Calculate available quantity for each product
+		// Helper to pick a thumbnail: prefer Etsy image, then Shopify raw originalSrc, then online_store_url
+		// Calculate available quantity and derive thumbnail/shopify_url for each product using helpers
 		const productsWithAvailability = products.map(p => {
 			p.quantity_available = (p.quantity_on_hand || 0) - (p.quantity_committed || 0);
+			p.thumbnail_url = getProductThumbnail(p);
+			// Provide a shopify admin/storefront URL when possible (pass env/settings resolution at product-details)
+			p.shopify_url = buildShopifyUrl(p, process.env.SHOPIFY_SHOP_NAME || null);
 			return p;
 		});
 
@@ -149,6 +158,41 @@ router.get('/product/:sku', async (req, res) => {
 		// Convert to object with availability
 		const productData = product.toObject();
 		productData.quantity_available = calculateAvailableQuantity(product);
+		// Provide shop domain fallback to the client so storefront/admin links can be built
+		let shopifyShopName = process.env.SHOPIFY_SHOP_NAME || process.env.SHOPIFY_SHOP || null;
+		if (!shopifyShopName) {
+			try {
+				const Settings = require('../models/settings');
+				const saved = await Settings.getSetting('shopifyShopName');
+				if (saved) shopifyShopName = saved;
+			} catch {
+				// Ignore and continue without persistent fallback
+			}
+		}
+
+		// Attach only if we have a non-empty string to avoid passing falsy values
+		if (shopifyShopName) productData.shopifyShopName = shopifyShopName;
+
+		// Add shopify_url using helper
+		try {
+			productData.shopify_url = buildShopifyUrl(productData, shopifyShopName) || null;
+		} catch {
+			// ignore
+		}
+
+		// Provide a helper boolean to indicate if Shopify linkage looks valid
+		const sd = product.shopify_data || {};
+		const raw =
+			product.raw_shopify_data && product.raw_shopify_data.product
+				? product.raw_shopify_data.product
+				: null;
+		const shopifyConnected = !!(
+			sd.product_url ||
+			sd.product_id ||
+			sd.handle ||
+			(raw && (raw.online_store_url || raw.handle || raw.id))
+		);
+		productData.shopifyConnected = shopifyConnected;
 
 		res.json(productData);
 	} catch (error) {
@@ -177,7 +221,16 @@ router.get('/details/:sku', async (req, res) => {
 
 		// Check if product is connected to marketplaces
 		const etsyConnected = !!product.etsy_data?.listing_id;
-		const shopifyConnected = !!product.shopify_data?.product_id;
+		// Treat Shopify as connected if any identifying Shopify data exists
+		const shopifyConnected = !!(
+			(product.shopify_data &&
+				(product.shopify_data.product_id ||
+					product.shopify_data.handle ||
+					product.shopify_data.product_url ||
+					product.shopify_data.shop_domain)) ||
+			// Also consider raw shopify product data as evidence of a connection
+			(product.raw_shopify_data && product.raw_shopify_data.product)
+		);
 
 		// Convert Mongoose document to plain object *after* calculations
 		const productData = product.toObject();
@@ -188,10 +241,23 @@ router.get('/details/:sku', async (req, res) => {
 			productData: JSON.stringify(productData, null, 2),
 		}); // Log the plain object
 
+		// Determine shopifyShopName to pass to templates (env -> settings)
+		let shopifyShopName = process.env.SHOPIFY_SHOP_NAME || process.env.SHOPIFY_SHOP || null;
+		if (!shopifyShopName) {
+			try {
+				const Settings = require('../models/settings');
+				const saved = await Settings.getSetting('shopifyShopName');
+				if (saved) shopifyShopName = saved;
+			} catch {
+				// ignore
+			}
+		}
+
 		res.render('product-details', {
 			product: productData, // Pass the plain JavaScript object
 			etsyConnected,
 			shopifyConnected,
+			shopifyShopName,
 			activePage: 'inventory', // Add activePage
 		});
 	} catch (error) {
@@ -200,6 +266,218 @@ router.get('/details/:sku', async (req, res) => {
 		res.redirect('/inventory');
 	}
 });
+
+/**
+ * Search for candidate Etsy listings to link to a Shopify product
+ * Returns up to ~5 Etsy products with sku starting with 'ETSY-' matching by title and images
+ * @route GET /inventory/:sku/etsy-candidates
+ */
+router.get('/:sku/etsy-candidates', async (req, res) => {
+	try {
+		const sku = req.params.sku;
+		const product = await findProductBySku(sku);
+		if (!product) return res.status(404).json({ error: 'Product not found' });
+
+		// Only run for Shopify-backed SKUs (not ETSY- defaults)
+		if (sku.startsWith('ETSY-'))
+			return res.status(400).json({ error: 'This SKU appears to be an Etsy product' });
+
+		// Construct a simple text-based match on title; case-insensitive
+		const title = product.name || product.shopify_data?.title || '';
+		// split title into tokens
+
+		// Build token list to use in matching
+		const tokens = title
+			.split(/[\s\-_/]+/)
+			.map(t => t.trim())
+			.filter(Boolean)
+			.slice(0, 6);
+
+		// Build regex to match similar titles using lookahead (AND-match) when possible
+		let candidates = [];
+		if (tokens.length > 0) {
+			const lookaheadPattern = tokens.map(t => `(?=.*${escapeRegExp(t)})`).join('');
+			const regex = new RegExp(lookaheadPattern, 'i');
+
+			// Search for ETSY- records that aren't yet linked to Shopify (sku starts with ETSY-)
+			candidates = await Product.find({
+				sku: { $regex: '^ETSY-' },
+				$or: [{ 'etsy_data.title': { $regex: regex } }, { name: { $regex: regex } }],
+			})
+				.select({ sku: 1, name: 1, etsy_data: 1 })
+				.limit(8)
+				.lean()
+				.maxTimeMS(10000);
+		}
+
+		// If no candidates from the strict AND-match, run a looser OR-based token search (any token)
+		if ((!candidates || candidates.length === 0) && tokens.length > 0) {
+			const orConditions = [];
+			tokens.forEach(t => {
+				const r = new RegExp(escapeRegExp(t), 'i');
+				orConditions.push({ 'etsy_data.title': { $regex: r } });
+				orConditions.push({ name: { $regex: r } });
+			});
+
+			const fallback = await Product.find({ sku: { $regex: '^ETSY-' }, $or: orConditions })
+				.select({ sku: 1, name: 1, etsy_data: 1 })
+				.limit(12)
+				.lean()
+				.maxTimeMS(10000);
+
+			candidates = fallback || [];
+		}
+
+		// Heuristic scoring: title similarity and image presence
+		const scored = candidates
+			.map(c => {
+				let score = 0;
+				if (
+					c.etsy_data &&
+					c.etsy_data.title &&
+					title &&
+					c.etsy_data.title.toLowerCase().includes(title.toLowerCase())
+				)
+					score += 5;
+				if (
+					c.etsy_data &&
+					Array.isArray(c.etsy_data.images) &&
+					c.etsy_data.images.length > 0
+				)
+					score += 3;
+				// small boost if the stored 'name' matches
+				if (c.name && title && c.name.toLowerCase().includes(title.toLowerCase()))
+					score += 2;
+				return { candidate: c, score };
+			})
+			.sort((a, b) => b.score - a.score)
+			.slice(0, 5)
+			.map(s => s.candidate);
+
+		res.json({ candidates: scored });
+	} catch (err) {
+		logger.error('Error searching Etsy candidates', { error: err.message });
+		res.status(500).json({ error: 'Failed to search candidates' });
+	}
+});
+
+/**
+ * Link a Shopify product (sku) to an Etsy listing (by Etsy listing id or ETSY- sku)
+ * This will copy etsy_data into the shopify SKU product, delete the ETSY- record, and write the sku to Etsy listing
+ * @route POST /inventory/:sku/link-etsy
+ * @body { listingId?: string, etsySku?: string }
+ */
+router.post('/:sku/link-etsy', async (req, res) => {
+	try {
+		const sku = req.params.sku;
+		const { listingId, etsySku } = req.body || {};
+		const target = await findProductBySku(sku);
+		if (!target) return res.status(404).json({ error: 'Target product not found' });
+		if (sku.startsWith('ETSY-'))
+			return res.status(400).json({ error: 'Target must be a Shopify SKU' });
+
+		// Resolve the ets y product either by explicit listingId or by etsySku
+		let etsyProduct = null;
+		if (etsySku) {
+			etsyProduct = await findProductBySku(etsySku);
+			if (!etsyProduct)
+				return res.status(404).json({ error: 'Etsy product not found by SKU' });
+		} else if (listingId) {
+			// try to find matching ETSY- record by listing id
+			etsyProduct = await Product.findOne({
+				'etsy_data.listing_id': listingId,
+				sku: { $regex: '^ETSY-' },
+			}).maxTimeMS(10000);
+			if (!etsyProduct) {
+				// If not in DB, fetch from Etsy and synthesize minimal data
+				try {
+					const listing = await etsyHelpers.getListing(listingId);
+					if (listing) {
+						etsyProduct = {
+							sku: `ETSY-${listingId}`,
+							name: listing.title || listing.title || `Etsy ${listingId}`,
+							etsy_data: {
+								listing_id: listingId,
+								title: listing.title,
+								description: listing.description,
+								price:
+									listing.price && listing.price.amount
+										? parseFloat(listing.price.amount)
+										: null,
+								quantity: listing.quantity,
+								status: listing.state,
+								images: (listing.images || []).map(i => ({
+									url: i.url_fullxfull || i.url_570xN || i.url,
+								})),
+							},
+						};
+					}
+				} catch (e) {
+					logger.warn('Could not fetch listing from Etsy during link', {
+						listingId,
+						error: e.message,
+					});
+				}
+			}
+		} else {
+			return res.status(400).json({ error: 'listingId or etsySku required' });
+		}
+
+		if (!etsyProduct) return res.status(404).json({ error: 'Etsy product not found' });
+
+		// If etsyProduct is a mongoose doc, convert to plain object
+		const etsyObj = etsyProduct.toObject ? etsyProduct.toObject() : etsyProduct;
+
+		// Merge Etsy-specific fields into target.shopify_data (copy etsy_data into target.shopify_data fields prefixed as needed)
+		// We'll copy title/description/images and set etsy_data on the target
+		target.etsy_data = etsyObj.etsy_data || {
+			listing_id: listingId || (etsyObj.sku && etsyObj.sku.replace(/^ETSY-/, '')),
+			title: etsyObj.etsy_data?.title || etsyObj.title || etsyObj.name,
+			description: etsyObj.etsy_data?.description || etsyObj.description,
+			price: etsyObj.etsy_data?.price || etsyObj.price,
+			quantity: etsyObj.etsy_data?.quantity || etsyObj.quantity,
+			status: etsyObj.etsy_data?.status || etsyObj.status,
+			tags: etsyObj.etsy_data?.tags || etsyObj.tags || [],
+			images: etsyObj.etsy_data?.images || etsyObj.images || [],
+			last_synced: new Date(),
+		};
+
+		// Write SKU to Etsy listing (attempt), but do not block DB changes if Etsy update fails; report result
+		const newSku = sku;
+		let etsyUpdateResult = null;
+		try {
+			const listing_id_to_update =
+				target.etsy_data.listing_id ||
+				(etsyObj.etsy_data && etsyObj.etsy_data.listing_id) ||
+				(etsyObj.sku && etsyObj.sku.replace(/^ETSY-/, ''));
+			if (listing_id_to_update) {
+				etsyUpdateResult = await etsyHelpers.updateListingSku(listing_id_to_update, newSku);
+			}
+		} catch (e) {
+			// Capture the error details to return to the client for debugging
+			logger.warn('Failed to write SKU to Etsy listing', { error: e.message });
+			etsyUpdateResult = { error: e.message };
+		}
+
+		// Save updated target product
+		await target.save();
+
+		// Delete the ETSY- record if it exists as a separate document
+		if (etsyProduct && etsyProduct._id) {
+			await Product.deleteOne({ _id: etsyProduct._id }).maxTimeMS(10000);
+		}
+
+		res.json({ success: true, etsyUpdateResult });
+	} catch (err) {
+		logger.error('Error linking Etsy product', { error: err.message });
+		res.status(500).json({ error: 'Failed to link Etsy product' });
+	}
+});
+
+// small helper
+function escapeRegExp(string) {
+	return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * API endpoint to update one or more products

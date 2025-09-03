@@ -61,7 +61,7 @@
                 </div>
                 <div class="col d-flex justify-content-end align-items-center">
                     <div class="btn-group mb-3">
-                        <button id="addProduct" class="btn btn-success">Add Product</button>
+                        <!-- Add Product flow intentionally removed. See TODO in repo: Add Product feature disabled -->
                         <button id="addProperty" class="btn btn-primary">Add Property</button>
                         <button id="save" class="btn btn-primary">Save Changes</button>
                     </div>
@@ -243,21 +243,15 @@
 
             // Ensure Bootstrap is fully loaded
             if (typeof bootstrap !== 'undefined') {
-                // Pre-initialize modals if they exist
-                const addProductModalElement = document.getElementById('addProductModal');
-                if (addProductModalElement) {
-                    const addProductModal = new bootstrap.Modal(addProductModalElement);
-                    console.log('Bootstrap addProductModal initialized');
-                } else {
-                     console.warn('#addProductModal element not found. Cannot initialize modal.');
-                }
+                // Product modal initialization removed for Add Product feature (disabled).
                 const productDetailsModalElement = document.getElementById('productDetailsModal');
                  if (productDetailsModalElement) {
                     const productDetailsModal = new bootstrap.Modal(productDetailsModalElement);
                     console.log('Bootstrap productDetailsModal initialized');
-                } else {
-                     console.warn('#productDetailsModal element not found. Cannot initialize modal.');
-                }
+             } else {
+                 console.warn('#productDetailsModal element not found. Cannot initialize modal.');
+             }
+          } else {
             } else {
                 console.error('Bootstrap not loaded properly');
             }
@@ -557,21 +551,9 @@
         // --- Event Listeners for Buttons ---
 
         // Add Product Button
-        const addProductBtn = document.getElementById('addProduct');
-        if (addProductBtn) {
-            addProductBtn.addEventListener('click', function() {
-                console.log('Add product button clicked');
-                 const addProductModalElement = document.getElementById('addProductModal');
-                 if (addProductModalElement) {
-                    const modal = bootstrap.Modal.getInstance(addProductModalElement) || new bootstrap.Modal(addProductModalElement);
-                    modal.show();
-                 } else {
-                     console.error("Add product modal element not found!");
-                 }
-            });
-        } else {
-            console.warn("#addProduct button not found.");
-        }
+        // Add Product flow intentionally disabled.
+        // TODO(feature-flag): Add Product UI removed from inventory table view. To re-enable,
+        // implement a shared `addProductModal` partial and reintroduce the button and handlers.
 
 
         // Add Property Button
@@ -650,99 +632,9 @@
         }
 
 
-        // Search Functionality
-        const searchBtn = document.getElementById('searchBtn');
-        const searchInput = document.getElementById('searchInput');
-
-        function performSearch() {
-            const searchTerm = searchInput ? searchInput.value.trim() : '';
-            if (tableState.search !== searchTerm) {
-                tableState.search = searchTerm;
-                tableState.page = 1; // Reset to first page
-                loadTableData();
-            }
-        }
-
-        if (searchBtn) {
-            searchBtn.addEventListener('click', performSearch);
-        } else {
-             console.warn("#searchBtn not found.");
-        }
-
-        if (searchInput) {
-            searchInput.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
-                    performSearch();
-                }
-            });
-        } else {
-             console.warn("#searchInput not found.");
-        }
-
-
-        // --- Modal Related Functions ---
-
-        // Handle saving new product (assuming modal HTML exists elsewhere or is included)
-        const saveProductBtn = document.getElementById('saveProduct');
-         if (saveProductBtn) {
-            saveProductBtn.addEventListener('click', async function() {
-                console.log('Save product button clicked');
-                // Ensure the form elements exist before accessing their values
-                const skuEl = document.getElementById('sku');
-                const nameEl = document.getElementById('name');
-                const locationEl = document.getElementById('location');
-                const quantityEl = document.getElementById('quantity');
-
-                if (!skuEl || !nameEl || !locationEl || !quantityEl) {
-                    console.error("One or more form elements for adding a product are missing.");
-                    alert("Error: Cannot find product form elements.");
-                    return;
-                }
-
-
-                const formData = {
-                    sku: skuEl.value,
-                    name: nameEl.value,
-                    location: locationEl.value,
-                    quantity_on_hand: parseInt(quantityEl.value) || 0
-                };
-
-                if (!formData.sku) {
-                     alert("SKU is required to add a product.");
-                     return;
-                }
-
-                console.log('Saving product:', formData);
-
-                try {
-                    // Use the same POST /inventory endpoint
-                    const response = await fetch('/inventory', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ changes: [formData] }) // Send as an array
-                    });
-
-                    if (response.ok) {
-                         const addProductModalElement = document.getElementById('addProductModal');
-                         if (addProductModalElement) {
-                            const modal = bootstrap.Modal.getInstance(addProductModalElement);
-                            if (modal) modal.hide();
-                         }
-                        alert('Product added successfully!');
-                        loadTableData(); // Reload data
-                    } else {
-                         const errorData = await response.json().catch(() => ({ error: 'Error adding product' }));
-                        alert(`Error adding product: ${errorData.message || errorData.error}`);
-                    }
-                } catch (error) {
-                    console.error('Error saving product:', error);
-                    alert('Failed to save product: ' + error.message);
-                }
-            });
-        } else {
-             console.warn("#saveProduct button not found (expected in add product modal).");
-        }
-
+    // Search Functionality
+    const searchBtn = document.getElementById('searchBtn');
+    const searchInput = document.getElementById('searchInput');
 
         // Function to fetch product details on demand
         async function fetchProductDetails(sku) {
@@ -814,10 +706,11 @@
             const rawEtsyDataEl = document.getElementById('rawEtsyDataContent');
              if (rawEtsyDataEl) rawEtsyDataEl.textContent = JSON.stringify(etsyData, null, 2);
 
-             // Etsy Images Carousel
+            // Image Carousel: prefer Etsy images, then raw Shopify product images (originalSrc)
             const carouselInner = document.getElementById('carouselImages');
             if (carouselInner) {
                 carouselInner.innerHTML = ''; // Clear previous images
+                // Prefer Etsy images when available
                 if (etsyData.images && etsyData.images.length > 0) {
                     etsyData.images.forEach((image, index) => {
                         const item = document.createElement('div');
@@ -827,18 +720,36 @@
                         img.src = image.url_fullxfull || image.url_570xN || image.url_170x135 || image.url_75x75 || image.url;
                         img.className = 'd-block w-100';
                         img.alt = product.name || 'Product image';
-                        img.style.objectFit = 'contain'; // Ensure image fits well
-                        img.style.maxHeight = '400px'; // Limit height
+                        img.style.objectFit = 'contain';
+                        img.style.maxHeight = '400px';
                         item.appendChild(img);
                         carouselInner.appendChild(item);
                     });
-                     // Ensure carousel controls are visible if there are images
+                    // Ensure carousel controls are visible if there are images
                     const carouselControls = productDetailsModalElement.querySelectorAll('.carousel-control-prev, .carousel-control-next');
                     carouselControls.forEach(el => el.classList.toggle('d-none', etsyData.images.length <= 1));
+
+                // Fallback to raw Shopify product images (GraphQL edges -> node.originalSrc)
+                } else if (product.raw_shopify_data && product.raw_shopify_data.product && product.raw_shopify_data.product.images && product.raw_shopify_data.product.images.edges && product.raw_shopify_data.product.images.edges.length > 0) {
+                    product.raw_shopify_data.product.images.edges.forEach((edge, index) => {
+                        const item = document.createElement('div');
+                        item.className = `carousel-item ${index === 0 ? 'active' : ''}`;
+                        const img = document.createElement('img');
+                        img.src = edge.node.originalSrc || edge.node.url || '';
+                        img.className = 'd-block w-100';
+                        img.alt = edge.node.altText || product.name || 'Product image';
+                        img.style.objectFit = 'contain';
+                        img.style.maxHeight = '400px';
+                        item.appendChild(img);
+                        carouselInner.appendChild(item);
+                    });
+                    const carouselControls = productDetailsModalElement.querySelectorAll('.carousel-control-prev, .carousel-control-next');
+                    carouselControls.forEach(el => el.classList.toggle('d-none', product.raw_shopify_data.product.images.edges.length <= 1));
+
                 } else {
-                     // Optionally show a placeholder if no images
-                     carouselInner.innerHTML = '<div class="carousel-item active"><div class="d-flex justify-content-center align-items-center h-100"><span class="text-muted">No images available</span></div></div>';
-                     const carouselControls = productDetailsModalElement.querySelectorAll('.carousel-control-prev, .carousel-control-next');
+                    // No images available
+                    carouselInner.innerHTML = '<div class="carousel-item active"><div class="d-flex justify-content-center align-items-center h-100"><span class="text-muted">No images available</span></div></div>';
+                    const carouselControls = productDetailsModalElement.querySelectorAll('.carousel-control-prev, .carousel-control-next');
                     carouselControls.forEach(el => el.classList.add('d-none'));
                 }
             }
@@ -850,15 +761,37 @@
             setContent('shopifyQuantity', shopifyData.inventory_quantity);
 
             const shopifyLink = document.getElementById('shopifyLink');
-             if (shopifyLink) {
-                 // Need a way to construct the Shopify product URL (e.g., requires shop domain and product handle or ID)
-                 // Example (needs adjustment based on available data):
-                 // if (shopifyData.product_id && shopifyData.shop_domain) {
-                 //    shopifyLink.href = `https://${shopifyData.shop_domain}/admin/products/${shopifyData.product_id}`;
-                 //    shopifyLink.classList.remove('d-none');
-                 // } else {
-                    shopifyLink.classList.add('d-none'); // Hide if link cannot be constructed
-                 // }
+            if (shopifyLink) {
+                // Prefer an explicit product_url if provided by the backend
+                if (shopifyData.product_url) {
+                    shopifyLink.href = shopifyData.product_url;
+                    shopifyLink.classList.remove('d-none');
+                } else {
+                    // Determine available identifiers. We should only build a URL when we have a reliable domain or can use the admin.shopify.com pattern with a stored shop name.
+                    const shopDomain = shopifyData.shop_domain || null;
+                    const storedShop = product.shopifyShopName || null; // returned by API when available
+
+                    // If we have the public shop domain and a handle, build storefront link
+                    if (shopDomain && shopifyData.handle) {
+                        shopifyLink.href = `https://${shopDomain}/products/${shopifyData.handle}`;
+                        shopifyLink.classList.remove('d-none');
+
+                    // If we have a stored shop name and a product id, prefer the admin.shopify.com/store/{shop}/products/{id} pattern
+                    } else if (storedShop && shopifyData.product_id) {
+                        shopifyLink.href = `https://admin.shopify.com/store/${storedShop}/products/${shopifyData.product_id}`;
+                        shopifyLink.classList.remove('d-none');
+
+                    // If raw shopify product contains an online_store_url, use it
+                    } else if (product.raw_shopify_data && product.raw_shopify_data.product && product.raw_shopify_data.product.online_store_url) {
+                        shopifyLink.href = product.raw_shopify_data.product.online_store_url;
+                        shopifyLink.classList.remove('d-none');
+
+                    } else {
+                        // No reliable URL can be constructed; hide the link to avoid malformed hrefs
+                        shopifyLink.classList.add('d-none');
+                        shopifyLink.removeAttribute('href');
+                    }
+                }
             }
              const rawShopifyDataEl = document.getElementById('rawShopifyDataContent');
              if (rawShopifyDataEl) rawShopifyDataEl.textContent = JSON.stringify(shopifyData, null, 2);

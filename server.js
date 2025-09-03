@@ -27,6 +27,7 @@ const orderRoutes = require('./routes/orders');
 const inventoryRoutes = require('./routes/inventory');
 const syncRoutes = require('./routes/sync');
 const settingsRoutes = require('./routes/settings');
+const debugRoutes = require('./routes/debug');
 
 // Import custom middleware and helpers
 const configHandlebarsHelpers = require('./utils/handlebars-helpers');
@@ -60,6 +61,8 @@ app.use(express.urlencoded({ extended: true })); // Add this line to parse form 
 
 // Serve static files from assets directory
 app.use('/assets', express.static(path.join(process.cwd(), 'assets')));
+// Serve CSS from assets/css at /css to match template links
+app.use('/css', express.static(path.join(process.cwd(), 'assets', 'css')));
 
 // Session middleware
 app.use(
@@ -83,6 +86,7 @@ app.use('/orders', orderRoutes);
 app.use('/inventory', inventoryRoutes);
 app.use('/sync', syncRoutes);
 app.use('/settings', settingsRoutes);
+app.use('/debug', debugRoutes);
 
 /**
  * Main dashboard route
@@ -92,6 +96,7 @@ app.use('/settings', settingsRoutes);
  * @param {Object} res - Express response object
  */
 app.get('/', async (req, res) => {
+	// TODO: Add last auto-sync time to dashboard
 	try {
 		const isAuthenticated = !authService.isTokenExpired();
 

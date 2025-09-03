@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Orders SKU Needs</title>
+    <style>
+        .sku-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #eee; }
+        .sku-img { width: 64px; height: 64px; object-fit: cover; border: 1px solid #ddd; }
+        .sku-meta { flex: 1; }
+        .sku-qtys { width: 220px; text-align: right; }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>SKU Needs View</h1>
+            <div>
+                <a href="/orders" class="btn btn-sm btn-outline-secondary">Back to Orders</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <div>
+                    {{!-- Always show view switch --}}
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                        <div>Page {{pagination.page}} of {{pagination.totalPages}} — {{pagination.total}} {{#if pagination.byDate}}dates{{else}}items{{/if}}</div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div>
+                                <a href="/orders/view?view=sku-needs{{#if pagination.sort}}&sort={{pagination.sort}}{{/if}}&pageSize={{pagination.pageSize}}" class="btn btn-sm btn-outline-secondary {{#if (eq view 'sku-needs')}}active{{/if}}">SKUs</a>
+                                <a href="/orders/view?view=sku-day{{#if pagination.sort}}&sort={{pagination.sort}}{{/if}}&pageSize={{pagination.pageSize}}" class="btn btn-sm btn-outline-secondary {{#if (eq view 'sku-day')}}active{{/if}}">Days</a>
+                            </div>
+                                                <form id="pageSizeForm" method="get" action="/orders/view" style="display:inline-block;margin-right:8px;">
+                                                    <input type="hidden" name="view" value="{{view}}">
+                                                    <input type="hidden" name="sort" value="{{pagination.sort}}">
+                                                    <label for="pageSizeSelect" class="small">Per page</label>
+                                                    <select id="pageSizeSelect" name="pageSize" onchange="this.form.submit()">
+                                                        <option value="5" {{#if (eq pagination.pageSize 5)}}selected{{/if}}>5</option>
+                                                        <option value="10" {{#if (eq pagination.pageSize 10)}}selected{{/if}}>10</option>
+                                                        <option value="25" {{#if (eq pagination.pageSize 25)}}selected{{/if}}>25</option>
+                                                        <option value="50" {{#if (eq pagination.pageSize 50)}}selected{{/if}}>50</option>
+                                                    </select>
+                                                </form>
+
+                                                {{#if (gt pagination.page 1)}}
+                                                    <a href="/orders/view?view={{view}}&page=1&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary"><< First</a>
+                                                    <a href="/orders/view?view={{view}}&page={{subtract pagination.page 1}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Prev</a>
+                                                {{else}}
+                                                    <span class="btn btn-sm btn-outline-secondary disabled"><< First</span>
+                                                    <span class="btn btn-sm btn-outline-secondary disabled">Prev</span>
+                                                {{/if}}
+                                                {{#if (lt pagination.page pagination.totalPages)}}
+                                                    <a href="/orders/view?view={{view}}&page={{add pagination.page 1}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Next</a>
+                                                    <a href="/orders/view?view={{view}}&page={{pagination.totalPages}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Last >></a>
+                                                {{else}}
+                                                    <span class="btn btn-sm btn-outline-secondary disabled">Next</span>
+                                                    <span class="btn btn-sm btn-outline-secondary disabled">Last >></span>
+                                                {{/if}}
+                                            </div>
+                                        </div>
+                                        {{#if pagination.byDate}}
+
+                        <div style="display:flex;align-items:center;font-weight:600;padding:8px 0;border-bottom:1px solid #ddd;">
+                            <div style="width:80px"></div>
+                            <div style="flex:1">Product</div>
+                            <div style="width:220px;text-align:right;">
+                                Needed
+                                <a href="/orders/view?view={{view}}&sort=needed_desc&pageSize={{pagination.pageSize}}" class="small">↓</a>
+                                <a href="/orders/view?view={{view}}&sort=needed_asc&pageSize={{pagination.pageSize}}" class="small">↑</a>
+                            </div>
+                            <div style="width:120px;text-align:right;">
+                                Available
+                                <a href="/orders/view?view={{view}}&sort=available_desc&pageSize={{pagination.pageSize}}" class="small">↓</a>
+                                <a href="/orders/view?view={{view}}&sort=available_asc&pageSize={{pagination.pageSize}}" class="small">↑</a>
+                            </div>
+                        </div>
+
+                        {{#each groupedDays}}
+                        <div class="day-group" data-date="{{this.date}}">
+                            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 6px;background:#fafafa;border:1px solid #eee;margin-top:8px;">
+                                <div style="font-weight:700;">{{this.label}}</div>
+                                <div style="font-size:0.9rem;color:#666;">Total needed: <strong>{{this.totalNeeded}}</strong></div>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-secondary toggle-day" aria-expanded="false" data-target="{{this.date}}">
+                                        <span class="chev">›</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="day-rows" id="day-{{this.date}}" style="padding:8px;">
+                                {{#each this.rows}}
+                                <div class="sku-row">
+                                    <div>
+                                        {{#if this.image}}
+                                            <img src="{{this.image}}" class="sku-img" alt="{{this.title}}">
+                                        {{else}}
+                                            <div class="sku-img" style="display:flex;align-items:center;justify-content:center;background:#f8f8f8;color:#999;">No Image</div>
+                                        {{/if}}
+                                    </div>
+                                    <div class="sku-meta">
+                                        <div><strong>{{this.title}}</strong></div>
+                                        <div style="color:#666;">SKU: {{this.sku}}</div>
+                                    </div>
+                                    <div class="sku-qtys">
+                                        <div>Needed: <strong>{{this.needed}}</strong></div>
+                                    </div>
+                                    <div style="width:120px;text-align:right;">
+                                        <div>Available: <strong>{{#if this.available}}{{this.available}}{{else}}N/A{{/if}}</strong></div>
+                                    </div>
+                                </div>
+                                {{/each}}
+                            </div>
+                        </div>
+                        {{/each}}
+
+                        {{!-- Bottom pagination/navigation controls --}}
+                        {{#if pagination}}
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+                            <div>
+                                Page {{pagination.page}} of {{pagination.totalPages}} — {{pagination.total}} items
+                            </div>
+                            <div>
+                                {{#if (gt pagination.page 1)}}
+                                    <a href="/orders/view?view={{view}}&page=1&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary"><< First</a>
+                                    <a href="/orders/view?view={{view}}&page={{subtract pagination.page 1}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Prev</a>
+                                {{else}}
+                                    <span class="btn btn-sm btn-outline-secondary disabled"><< First</span>
+                                    <span class="btn btn-sm btn-outline-secondary disabled">Prev</span>
+                                {{/if}}
+                                {{#if (lt pagination.page pagination.totalPages)}}
+                                    <a href="/orders/view?view={{view}}&page={{add pagination.page 1}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Next</a>
+                                    <a href="/orders/view?view={{view}}&page={{pagination.totalPages}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Last >></a>
+                                {{else}}
+                                    <span class="btn btn-sm btn-outline-secondary disabled">Next</span>
+                                    <span class="btn btn-sm btn-outline-secondary disabled">Last >></span>
+                                {{/if}}
+                            </div>
+                        </div>
+                        {{/if}}
+                    {{else if rows.length}}
+                        {{!-- Top pagination/navigation controls --}}
+                        
+
+                        <div style="display:flex;align-items:center;font-weight:600;padding:8px 0;border-bottom:1px solid #ddd;">
+                            <div style="width:80px"></div>
+                            <div style="flex:1">Product</div>
+                            <div style="width:220px;text-align:right;">
+                                Needed
+                                <a href="/orders/view?view={{view}}&sort=needed_desc&pageSize={{pagination.pageSize}}" class="small">↓</a>
+                                <a href="/orders/view?view={{view}}&sort=needed_asc&pageSize={{pagination.pageSize}}" class="small">↑</a>
+                            </div>
+                            <div style="width:120px;text-align:right;">
+                                Available
+                                <a href="/orders/view?view={{view}}&sort=available_desc&pageSize={{pagination.pageSize}}" class="small">↓</a>
+                                <a href="/orders/view?view={{view}}&sort=available_asc&pageSize={{pagination.pageSize}}" class="small">↑</a>
+                            </div>
+                        </div>
+                        {{#each rows}}
+                        <div class="sku-row">
+                            <div>
+                                {{#if this.image}}
+                                    <img src="{{this.image}}" class="sku-img" alt="{{this.title}}">
+                                {{else}}
+                                    <div class="sku-img" style="display:flex;align-items:center;justify-content:center;background:#f8f8f8;color:#999;">No Image</div>
+                                {{/if}}
+                            </div>
+                            <div class="sku-meta">
+                                <div><strong>{{this.title}}</strong></div>
+                                <div style="color:#666;">SKU: {{this.sku}}</div>
+                            </div>
+                            <div class="sku-qtys">
+                                <div>Needed: <strong>{{this.needed}}</strong></div>
+                            </div>
+                            <div style="width:120px;text-align:right;">
+                                <div>Available: <strong>{{#if this.available}}{{this.available}}{{else}}N/A{{/if}}</strong></div>
+                            </div>
+                        </div>
+                        {{/each}}
+
+                        {{!-- Bottom pagination/navigation controls (duplicate but with disabled states) --}}
+                        {{#if pagination}}
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+                            <div>
+                                Page {{pagination.page}} of {{pagination.totalPages}} — {{pagination.total}} items
+                            </div>
+                            <div>
+                                {{#if (gt pagination.page 1)}}
+                                    <a href="/orders/view?view={{view}}&page=1&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary"><< First</a>
+                                    <a href="/orders/view?view={{view}}&page={{subtract pagination.page 1}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Prev</a>
+                                {{else}}
+                                    <span class="btn btn-sm btn-outline-secondary disabled"><< First</span>
+                                    <span class="btn btn-sm btn-outline-secondary disabled">Prev</span>
+                                {{/if}}
+                                {{#if (lt pagination.page pagination.totalPages)}}
+                                    <a href="/orders/view?view={{view}}&page={{add pagination.page 1}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Next</a>
+                                    <a href="/orders/view?view={{view}}&page={{pagination.totalPages}}&pageSize={{pagination.pageSize}}&sort={{pagination.sort}}" class="btn btn-sm btn-outline-secondary">Last >></a>
+                                {{else}}
+                                    <span class="btn btn-sm btn-outline-secondary disabled">Next</span>
+                                    <span class="btn btn-sm btn-outline-secondary disabled">Last >></span>
+                                {{/if}}
+                            </div>
+                        </div>
+                        {{/if}}
+                    {{else}}
+                        <div>No SKUs needed from open orders.</div>
+                    {{/if}}
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script>
+// Detect if the navbar toggler (hamburger) is visible — reuse same condition as layout
+function isHamburgerVisible() {
+    const toggler = document.querySelector('.navbar-toggler');
+    if (!toggler) return false;
+    const style = window.getComputedStyle(toggler);
+    return style.display !== 'none' && toggler.offsetParent !== null;
+}
+
+function getQueryParams() {
+    return new URLSearchParams(window.location.search);
+}
+
+function setQueryParams(params) {
+    const base = window.location.pathname;
+    const qs = params.toString();
+    const url = base + (qs ? '?' + qs : '');
+    // Use replace to avoid polluting history
+    window.location.replace(url);
+}
+
+function adjustForMobile() {
+    try {
+        if (!isHamburgerVisible()) return; // only adjust when hamburger is shown
+
+        // Hide the per-page form
+        const pageSizeForm = document.getElementById('pageSizeForm');
+        if (pageSizeForm) pageSizeForm.style.display = 'none';
+
+        const params = getQueryParams();
+        // Avoid repeated adjustments
+        if (params.get('mobileAdjusted') === '1') return;
+
+        // Measure a row height
+        const firstRow = document.querySelector('.sku-row');
+        const rowHeight = firstRow ? firstRow.offsetHeight : 80;
+
+        // Compute available area below the top of the container
+        const container = document.querySelector('.container');
+        const containerTop = container ? container.getBoundingClientRect().top : 100;
+        // Reserve about 120px for headers/controls and bottom space
+        const reserved = 140;
+        const availableHeight = Math.max(120, window.innerHeight - containerTop - reserved);
+
+        let computedPageSize = Math.max(1, Math.floor(availableHeight / Math.max(1, rowHeight)));
+        // Cap to reasonable limits
+        computedPageSize = Math.min(200, computedPageSize);
+
+        const currentPageSize = parseInt(params.get('pageSize') || '0', 10);
+        if (currentPageSize !== computedPageSize) {
+            params.set('pageSize', String(computedPageSize));
+            params.set('page', '1');
+            // preserve current view when adjusting for mobile
+            params.set('view', (params.get('view') || '{{view}}'));
+            params.set('mobileAdjusted', '1');
+            // preserve sort if present
+            setQueryParams(params);
+        }
+    } catch (err) {
+        console.error('Mobile adjustment failed', err);
+    }
+}
+
+// Run on load and on resize (debounced)
+document.addEventListener('DOMContentLoaded', () => {
+    adjustForMobile();
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(adjustForMobile, 250);
+    });
+    // Collapsible date groups
+    try {
+        const toggles = document.querySelectorAll('.toggle-day');
+        toggles.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const target = btn.getAttribute('data-target');
+                const el = document.getElementById('day-' + target);
+                if (!el) return;
+                const expanded = btn.getAttribute('aria-expanded') === 'true';
+                if (expanded) {
+                    el.style.display = 'none';
+                    btn.setAttribute('aria-expanded', 'false');
+                    const chev = btn.querySelector('.chev'); if (chev) chev.textContent = '›';
+                } else {
+                    el.style.display = '';
+                    btn.setAttribute('aria-expanded', 'true');
+                    const chev = btn.querySelector('.chev'); if (chev) chev.textContent = '˅';
+                }
+            });
+        });
+
+        // Expand the first day-group (oldest) by default, collapse others; update chevrons
+        const groups = document.querySelectorAll('.day-group');
+        if (groups.length > 0) {
+            groups.forEach((g, idx) => {
+                const date = g.getAttribute('data-date');
+                const el = document.getElementById('day-' + date);
+                const btn = g.querySelector('.toggle-day');
+                if (!el || !btn) return;
+                if (idx === 0) {
+                    el.style.display = '';
+                    btn.setAttribute('aria-expanded', 'true');
+                    const chev = btn.querySelector('.chev'); if (chev) chev.textContent = '˅';
+                } else {
+                    el.style.display = 'none';
+                    btn.setAttribute('aria-expanded', 'false');
+                    const chev = btn.querySelector('.chev'); if (chev) chev.textContent = '›';
+                }
+            });
+        }
+    } catch (err) {
+        console.error('Day group toggles failed', err);
+    }
+});
+</script>
+</html>
