@@ -3,3 +3,7 @@
 [ ] Add sync indicator to navbar and make sure it works across all pages (e.g. spinning icon followed by green checkmark on completion)
 [ ] Collect all skus in last sync of orders and resync specifically those skus from both Etsy and Shopify
 [ ] Why doesn't inventory quantity sync properly?
+[ ] The Shopify admin URL construction uses unvalidated template variables that could result in malformed or potentially unsafe URLs. Consider validating shopifyShopName and product_id before URL construction to prevent XSS or redirect vulnerabilities. (views/product-details.hbs)
+[ ] Ensure all api urls for Etsy point to "openapi"
+[ ] Using alert() for user feedback is not user-friendly and blocks the UI. Consider using a more modern notification system like toasts or in-page messages for better user experience. (views/orders.hbs)
+[ ] The formatDate helper call has been removed, causing raw date objects to be displayed instead of formatted dates. This will result in poor user experience with unreadable date formats. The formatDate helper should be restored: {{formatDate order.order_date}} (views/order-details.hbs)

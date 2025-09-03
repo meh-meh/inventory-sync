@@ -15,7 +15,7 @@ jobs:
                 ports:
                     - 27017:27017
                 options: >-
-                    --health-cmd "mongosh --eval 'db.adminCommand({ ping: 1 })'" \
+                    --health-cmd "mongosh --eval 'db.adminCommand({ ping: 1 })'" 
                     --health-interval=5s --health-timeout=2s --health-retries=10
         env:
             PORT: 3003
